@@ -6,8 +6,14 @@ import {
   xray_edges,
   xray_lines,
   corehole_widths,
+  mu_elam,
 } from "~/lib/wasm-api";
 import { downloadCsv } from "~/lib/csv-export";
+import { ScientificPlot } from "~/components/plot/ScientificPlot";
+import type {
+  PlotTrace,
+  PlotAnnotation,
+} from "~/components/plot/ScientificPlot";
 
 export const Route = createFileRoute("/element/$z")({
   component: ElementDetailPage,
@@ -45,24 +51,44 @@ function ElementDetailPage() {
 
       // Z-1 and Z-2 filter suggestions for K-edge fluorescence
       const zNum = info.z as number;
-      let filterZ1: { symbol: string; z: number; kEdge: number } | null = null;
-      let filterZ2: { symbol: string; z: number; kEdge: number } | null = null;
+      let filterZ1: {
+        symbol: string;
+        z: number;
+        kEdge: number;
+      } | null = null;
+      let filterZ2: {
+        symbol: string;
+        z: number;
+        kEdge: number;
+      } | null = null;
 
       if (zNum > 2) {
         try {
           const f1 = element_info(String(zNum - 1));
-          const f1Edges = xray_edges(String(zNum - 1)) as { label: string; energy: number }[];
+          const f1Edges = xray_edges(String(zNum - 1)) as {
+            label: string;
+            energy: number;
+          }[];
           const kEdge = f1Edges.find((e) => e.label === "K");
-          if (kEdge) filterZ1 = { symbol: f1.symbol, z: f1.z, kEdge: kEdge.energy };
-        } catch { /* skip */ }
+          if (kEdge)
+            filterZ1 = { symbol: f1.symbol, z: f1.z, kEdge: kEdge.energy };
+        } catch {
+          /* skip */
+        }
       }
       if (zNum > 3) {
         try {
           const f2 = element_info(String(zNum - 2));
-          const f2Edges = xray_edges(String(zNum - 2)) as { label: string; energy: number }[];
+          const f2Edges = xray_edges(String(zNum - 2)) as {
+            label: string;
+            energy: number;
+          }[];
           const kEdge = f2Edges.find((e) => e.label === "K");
-          if (kEdge) filterZ2 = { symbol: f2.symbol, z: f2.z, kEdge: kEdge.energy };
-        } catch { /* skip */ }
+          if (kEdge)
+            filterZ2 = { symbol: f2.symbol, z: f2.z, kEdge: kEdge.energy };
+        } catch {
+          /* skip */
+        }
       }
 
       return { info, edges, lines, widths, filterZ1, filterZ2 };
@@ -70,6 +96,124 @@ function ElementDetailPage() {
       return null;
     }
   }, [ready, z]);
+
+  // Cross-section plot: element μ/ρ, filter element μ/ρ, fluorescence lines
+  const crossSectionPlot = useMemo(() => {
+    if (!ready || !data) return { traces: [] as PlotTrace[], annotations: [] as PlotAnnotation[] };
+
+    const { info, edges, lines, filterZ1, filterZ2 } = data;
+
+    // Determine energy range from edges
+    const edgeEnergies = edges
+      .map((e) => e.energy)
+      .filter((e) => e > 100);
+    if (edgeEnergies.length === 0)
+      return { traces: [] as PlotTrace[], annotations: [] as PlotAnnotation[] };
+
+    const maxEdge = Math.max(...edgeEnergies);
+    const minEdge = Math.min(...edgeEnergies);
+    const eStart = Math.max(100, minEdge * 0.3);
+    const eEnd = maxEdge * 1.5;
+    const nPoints = 500;
+    const step = Math.max(1, (eEnd - eStart) / nPoints);
+
+    const energies: number[] = [];
+    for (let e = eStart; e <= eEnd; e += step) {
+      energies.push(e);
+    }
+    const energyArr = new Float64Array(energies);
+
+    const traces: PlotTrace[] = [];
+    const annotations: PlotAnnotation[] = [];
+
+    // Element cross-section (total μ/ρ)
+    try {
+      const mu = mu_elam(info.symbol, energyArr, "total");
+      traces.push({
+        x: energies,
+        y: Array.from(mu),
+        name: `${info.symbol} μ/ρ (total)`,
+      });
+    } catch {
+      // skip
+    }
+
+    // Photo cross-section
+    try {
+      const mu = mu_elam(info.symbol, energyArr, "photo");
+      traces.push({
+        x: energies,
+        y: Array.from(mu),
+        name: `${info.symbol} μ/ρ (photo)`,
+        line: { dash: "dot", width: 1.5 },
+      });
+    } catch {
+      // skip
+    }
+
+    // Z-1 filter cross-section
+    if (filterZ1) {
+      try {
+        const mu = mu_elam(filterZ1.symbol, energyArr, "total");
+        traces.push({
+          x: energies,
+          y: Array.from(mu),
+          name: `${filterZ1.symbol} filter (Z-1)`,
+          line: { color: "#f59e0b", width: 2 },
+        });
+      } catch {
+        // skip
+      }
+      annotations.push({
+        x: filterZ1.kEdge,
+        text: `${filterZ1.symbol} K`,
+        color: "#f59e0b",
+      });
+    }
+
+    // Z-2 filter cross-section
+    if (filterZ2) {
+      try {
+        const mu = mu_elam(filterZ2.symbol, energyArr, "total");
+        traces.push({
+          x: energies,
+          y: Array.from(mu),
+          name: `${filterZ2.symbol} filter (Z-2)`,
+          line: { color: "#a78bfa", width: 2 },
+        });
+      } catch {
+        // skip
+      }
+      annotations.push({
+        x: filterZ2.kEdge,
+        text: `${filterZ2.symbol} K`,
+        color: "#a78bfa",
+      });
+    }
+
+    // Fluorescence emission lines as vertical markers
+    const strongLines = lines.filter((l) => l.intensity > 0.01 && l.energy > 100);
+    for (const line of strongLines.slice(0, 15)) {
+      annotations.push({
+        x: line.energy,
+        text: line.label,
+        color: "#22c55e",
+      });
+    }
+
+    // Edge annotations
+    for (const edge of edges) {
+      if (edge.energy > 100) {
+        annotations.push({
+          x: edge.energy,
+          text: `${info.symbol} ${edge.label}`,
+          color: "#ef4444",
+        });
+      }
+    }
+
+    return { traces, annotations };
+  }, [ready, data]);
 
   if (!ready) {
     return (
@@ -85,7 +229,7 @@ function ElementDetailPage() {
       <div>
         <p className="text-muted-foreground">Element not found.</p>
         <Link to="/" className="text-primary hover:underline">
-          ← Back to periodic table
+          &larr; Back to periodic table
         </Link>
       </div>
     );
@@ -99,7 +243,7 @@ function ElementDetailPage() {
         to="/"
         className="mb-4 inline-block text-sm text-muted-foreground hover:text-foreground"
       >
-        ← Back to periodic table
+        &larr; Back to periodic table
       </Link>
 
       <div className="mb-6 flex items-center gap-4">
@@ -112,16 +256,34 @@ function ElementDetailPage() {
             <span className="text-muted-foreground">(Z={info.z})</span>
           </h1>
           <p className="text-muted-foreground">
-            Molar mass: {info.molar_mass.toFixed(4)} g/mol &nbsp;·&nbsp;
+            Molar mass: {info.molar_mass.toFixed(4)} g/mol &nbsp;&middot;&nbsp;
             Density: {info.density.toFixed(4)} g/cm³
           </p>
         </div>
       </div>
 
+      {/* Cross-section / Filter Plot */}
+      {crossSectionPlot.traces.length > 0 && (
+        <div className="mb-6">
+          <ScientificPlot
+            traces={crossSectionPlot.traces}
+            xTitle="Energy (eV)"
+            yTitle="μ/ρ (cm²/g)"
+            title={`${info.symbol} — Cross-section & Filter`}
+            defaultLogY
+            defaultLogX
+            verticalLines={crossSectionPlot.annotations}
+            height={400}
+          />
+        </div>
+      )}
+
       {/* Filter suggestions */}
       {(filterZ1 || filterZ2) && (
         <div className="mb-6 rounded-lg border border-border bg-card p-4">
-          <h2 className="mb-2 text-lg font-semibold">Fluorescence Filter Suggestions</h2>
+          <h2 className="mb-2 text-lg font-semibold">
+            Fluorescence Filter Suggestions
+          </h2>
           <p className="mb-3 text-xs text-muted-foreground">
             Elements whose K-edge falls between the sample's fluorescence and
             absorption edge, useful as Z-1 / Z-2 filters.
@@ -170,11 +332,19 @@ function ElementDetailPage() {
                 onClick={() =>
                   downloadCsv(
                     `${info.symbol}_edges.csv`,
-                    ["Edge", "Energy_eV", "Wavelength_A", "Fluor_Yield", "Jump_Ratio"],
+                    [
+                      "Edge",
+                      "Energy_eV",
+                      "Wavelength_A",
+                      "Fluor_Yield",
+                      "Jump_Ratio",
+                    ],
                     edges.map((e) => [
                       e.label,
                       e.energy.toFixed(1),
-                      e.energy > 0 ? (HC_ANGSTROM / e.energy).toFixed(6) : "",
+                      e.energy > 0
+                        ? (HC_ANGSTROM / e.energy).toFixed(6)
+                        : "",
                       e.fluorescence_yield.toFixed(4),
                       e.jump_ratio.toFixed(4),
                     ]),
@@ -195,7 +365,7 @@ function ElementDetailPage() {
                   <tr className="border-b border-border text-left text-muted-foreground">
                     <th className="pb-2 pr-4">Edge</th>
                     <th className="pb-2 pr-4">Energy (eV)</th>
-                    <th className="pb-2 pr-4">λ (Å)</th>
+                    <th className="pb-2 pr-4">&lambda; (&Aring;)</th>
                     <th className="pb-2 pr-4">Fluor. Yield</th>
                     <th className="pb-2">Jump Ratio</th>
                   </tr>
@@ -213,7 +383,7 @@ function ElementDetailPage() {
                       <td className="py-1.5 pr-4 font-mono text-muted-foreground">
                         {edge.energy > 0
                           ? (HC_ANGSTROM / edge.energy).toFixed(4)
-                          : "—"}
+                          : "\u2014"}
                       </td>
                       <td className="py-1.5 pr-4 font-mono">
                         {edge.fluorescence_yield.toFixed(4)}
@@ -239,11 +409,20 @@ function ElementDetailPage() {
                 onClick={() =>
                   downloadCsv(
                     `${info.symbol}_lines.csv`,
-                    ["Line", "Energy_eV", "Wavelength_A", "Intensity", "Initial", "Final"],
+                    [
+                      "Line",
+                      "Energy_eV",
+                      "Wavelength_A",
+                      "Intensity",
+                      "Initial",
+                      "Final",
+                    ],
                     lines.map((l) => [
                       l.label,
                       l.energy.toFixed(1),
-                      l.energy > 0 ? (HC_ANGSTROM / l.energy).toFixed(6) : "",
+                      l.energy > 0
+                        ? (HC_ANGSTROM / l.energy).toFixed(6)
+                        : "",
                       l.intensity.toFixed(4),
                       l.initial_level,
                       l.final_level,
@@ -265,7 +444,7 @@ function ElementDetailPage() {
                   <tr className="border-b border-border text-left text-muted-foreground">
                     <th className="pb-2 pr-4">Line</th>
                     <th className="pb-2 pr-4">Energy (eV)</th>
-                    <th className="pb-2 pr-4">λ (Å)</th>
+                    <th className="pb-2 pr-4">&lambda; (&Aring;)</th>
                     <th className="pb-2 pr-4">Intensity</th>
                     <th className="pb-2 pr-4">Initial</th>
                     <th className="pb-2">Final</th>
@@ -284,7 +463,7 @@ function ElementDetailPage() {
                       <td className="py-1.5 pr-4 font-mono text-muted-foreground">
                         {line.energy > 0
                           ? (HC_ANGSTROM / line.energy).toFixed(4)
-                          : "—"}
+                          : "\u2014"}
                       </td>
                       <td className="py-1.5 pr-4 font-mono">
                         {line.intensity.toFixed(4)}

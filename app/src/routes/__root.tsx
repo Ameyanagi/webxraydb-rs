@@ -36,6 +36,7 @@ const navItems = [
   { to: "/ionchamber", label: "Ion Chamber" },
   { to: "/reflectivity", label: "Reflectivity" },
   { to: "/darwin", label: "Darwin Width" },
+  { to: "/sample-weight", label: "Sample Weight" },
   { to: "/analyzers", label: "Analyzers" },
 ] as const;
 
