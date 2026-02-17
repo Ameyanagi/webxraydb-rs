@@ -1,0 +1,29 @@
+# Rust
+/target
+Cargo.lock
+
+# Node / Bun
+node_modules/
+app/dist/
+app/.output/
+app/.vinxi/
+
+# WASM build output (generated, not committed)
+app/src/wasm-pkg/
+
+# Generated route tree
+app/src/routeTree.gen.ts
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local

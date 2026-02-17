@@ -1,0 +1,19 @@
+[package]
+name = "webxraydb-wasm"
+version = "0.1.0"
+edition = "2024"
+authors = ["Ameyanagi <contact@ameyanagi.com>"]
+description = "WASM bindings for the webxraydb-rs SPA"
+license = "MIT OR Apache-2.0"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+xraydb = { version = "0.1", features = ["optics"] }
+chemical-formula = "0.1.1"
+wasm-bindgen = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+tsify-next = "0.5"
+js-sys = "0.3"

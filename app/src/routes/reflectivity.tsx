@@ -1,0 +1,555 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { useState, useMemo, useCallback } from "react";
+import { useWasm } from "~/hooks/useWasm";
+import { mirror_reflectivity, xray_delta_beta } from "~/lib/wasm-api";
+import { ScientificPlot } from "~/components/plot/ScientificPlot";
+import type { PlotTrace } from "~/components/plot/ScientificPlot";
+import { MaterialPicker } from "~/components/material-picker/MaterialPicker";
+
+export const Route = createFileRoute("/reflectivity")({
+  component: ReflectivityPage,
+});
+
+interface CoatingLayer {
+  id: number;
+  formula: string;
+  density: number;
+  label: string;
+}
+
+const MIRROR_PRESETS = [
+  { label: "Si", formula: "Si", density: 2.33 },
+  { label: "SiO2", formula: "SiO2", density: 2.2 },
+  { label: "Pt", formula: "Pt", density: 21.45 },
+  { label: "Rh", formula: "Rh", density: 12.41 },
+  { label: "Ni", formula: "Ni", density: 8.9 },
+  { label: "Cr", formula: "Cr", density: 7.19 },
+];
+
+type PlotMode = "angle" | "energy";
+
+let nextId = 1;
+
+function ReflectivityPage() {
+  const ready = useWasm();
+
+  const [formula, setFormula] = useState("Si");
+  const [density, setDensity] = useState(2.33);
+  const [energy, setEnergy] = useState(10000);
+  const [roughness, setRoughness] = useState(0);
+  const [polarization, setPolarization] = useState("s");
+  const [plotMode, setPlotMode] = useState<PlotMode>("angle");
+
+  // Angle scan params
+  const [angleStart, setAngleStart] = useState(0.1);
+  const [angleEnd, setAngleEnd] = useState(10);
+  const [angleStep, setAngleStep] = useState(0.02);
+
+  // Energy scan params
+  const [fixedAngle, setFixedAngle] = useState(3.0); // mrad
+  const [energyStart, setEnergyStart] = useState(5000);
+  const [energyEnd, setEnergyEnd] = useState(30000);
+  const [energyStep, setEnergyStep] = useState(50);
+
+  const [overlays, setOverlays] = useState<CoatingLayer[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleMaterialSelect = useCallback((f: string, d: number) => {
+    setFormula(f);
+    setDensity(d);
+  }, []);
+
+  const addOverlay = useCallback(() => {
+    if (!formula.trim()) return;
+    setOverlays((prev) => [
+      ...prev,
+      {
+        id: nextId++,
+        formula: formula.trim(),
+        density,
+        label: `${formula.trim()} (ρ=${density})`,
+      },
+    ]);
+  }, [formula, density]);
+
+  const removeOverlay = useCallback((id: number) => {
+    setOverlays((prev) => prev.filter((o) => o.id !== id));
+  }, []);
+
+  // Angle scan traces
+  const angleTraces: PlotTrace[] = useMemo(() => {
+    if (!ready || plotMode !== "angle") return [];
+    setError(null);
+
+    const thetasMrad: number[] = [];
+    for (let a = angleStart; a <= angleEnd; a += angleStep) {
+      thetasMrad.push(a);
+    }
+    if (thetasMrad.length === 0) return [];
+
+    const thetaRad = new Float64Array(thetasMrad.map((t) => t * 0.001));
+    const result: PlotTrace[] = [];
+
+    if (formula.trim()) {
+      try {
+        const refl = mirror_reflectivity(
+          formula.trim(),
+          thetaRad,
+          energy,
+          density,
+          roughness,
+          polarization,
+        ) as number[] | Float64Array;
+        result.push({
+          x: thetasMrad,
+          y: Array.from(refl),
+          name: `${formula} (ρ=${density})`,
+        });
+      } catch (e: any) {
+        setError(e.message ?? String(e));
+      }
+    }
+
+    for (const ov of overlays) {
+      try {
+        const refl = mirror_reflectivity(
+          ov.formula,
+          thetaRad,
+          energy,
+          ov.density,
+          roughness,
+          polarization,
+        ) as number[] | Float64Array;
+        result.push({
+          x: thetasMrad,
+          y: Array.from(refl),
+          name: ov.label,
+          line: { dash: "dot", width: 2 },
+        });
+      } catch {
+        // skip
+      }
+    }
+
+    return result;
+  }, [
+    ready,
+    plotMode,
+    formula,
+    density,
+    energy,
+    roughness,
+    polarization,
+    angleStart,
+    angleEnd,
+    angleStep,
+    overlays,
+  ]);
+
+  // Energy scan traces
+  const energyTraces: PlotTrace[] = useMemo(() => {
+    if (!ready || plotMode !== "energy") return [];
+    setError(null);
+
+    const energies: number[] = [];
+    for (let e = energyStart; e <= energyEnd; e += energyStep) {
+      energies.push(e);
+    }
+    if (energies.length === 0) return [];
+
+    const thetaRad = new Float64Array([fixedAngle * 0.001]);
+    const result: PlotTrace[] = [];
+
+    const calcReflVsEnergy = (f: string, d: number): number[] => {
+      const refls: number[] = [];
+      for (const e of energies) {
+        try {
+          const refl = mirror_reflectivity(
+            f,
+            thetaRad,
+            e,
+            d,
+            roughness,
+            polarization,
+          ) as number[] | Float64Array;
+          refls.push(Array.from(refl)[0] ?? 0);
+        } catch {
+          refls.push(0);
+        }
+      }
+      return refls;
+    };
+
+    if (formula.trim()) {
+      try {
+        const refls = calcReflVsEnergy(formula.trim(), density);
+        result.push({
+          x: energies,
+          y: refls,
+          name: `${formula} (ρ=${density})`,
+        });
+      } catch (e: any) {
+        setError(e.message ?? String(e));
+      }
+    }
+
+    for (const ov of overlays) {
+      try {
+        const refls = calcReflVsEnergy(ov.formula, ov.density);
+        result.push({
+          x: energies,
+          y: refls,
+          name: ov.label,
+          line: { dash: "dot", width: 2 },
+        });
+      } catch {
+        // skip
+      }
+    }
+
+    return result;
+  }, [
+    ready,
+    plotMode,
+    formula,
+    density,
+    fixedAngle,
+    roughness,
+    polarization,
+    energyStart,
+    energyEnd,
+    energyStep,
+    overlays,
+  ]);
+
+  const traces = plotMode === "angle" ? angleTraces : energyTraces;
+
+  // Critical angle estimate
+  const criticalAngle = useMemo(() => {
+    if (!ready || !formula.trim()) return null;
+    try {
+      const db = xray_delta_beta(formula.trim(), density, energy) as {
+        delta: number;
+        beta: number;
+        attenuation_length_cm: number;
+      };
+      const thetaC = Math.sqrt(2 * db.delta) * 1000;
+      return thetaC;
+    } catch {
+      return null;
+    }
+  }, [ready, formula, density, energy]);
+
+  if (!ready) {
+    return (
+      <div className="flex items-center gap-2 text-muted-foreground">
+        <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        Loading X-ray database...
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <h1 className="mb-4 text-2xl font-bold">Mirror Reflectivity</h1>
+      <p className="mb-6 text-muted-foreground">
+        Calculate X-ray mirror reflectivity as a function of angle or energy.
+      </p>
+
+      <div className="mb-6 grid gap-6 lg:grid-cols-[350px_1fr]">
+        {/* Controls */}
+        <div className="space-y-4">
+          {/* Plot mode toggle */}
+          <div>
+            <label className="mb-1 block text-sm font-medium">Plot Mode</label>
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={() => setPlotMode("angle")}
+                className={`flex-1 rounded px-3 py-2 text-sm ${
+                  plotMode === "angle"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                }`}
+              >
+                R vs Angle
+              </button>
+              <button
+                type="button"
+                onClick={() => setPlotMode("energy")}
+                className={`flex-1 rounded px-3 py-2 text-sm ${
+                  plotMode === "energy"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                }`}
+              >
+                R vs Energy
+              </button>
+            </div>
+          </div>
+
+          {/* Quick presets */}
+          <div>
+            <label className="mb-1 block text-sm font-medium">
+              Mirror Coating
+            </label>
+            <div className="mb-2 flex flex-wrap gap-1">
+              {MIRROR_PRESETS.map((p) => (
+                <button
+                  key={p.label}
+                  type="button"
+                  onClick={() => {
+                    setFormula(p.formula);
+                    setDensity(p.density);
+                  }}
+                  className={`rounded px-2 py-1 text-xs font-medium ${formula === p.formula ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground hover:bg-secondary/80"}`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <MaterialPicker
+            onSelect={handleMaterialSelect}
+            label="Custom Material"
+          />
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="mb-1 block text-sm font-medium">Formula</label>
+              <input
+                type="text"
+                value={formula}
+                onChange={(e) => setFormula(e.target.value)}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium">
+                Density (g/cm&sup3;)
+              </label>
+              <input
+                type="number"
+                value={density}
+                step={0.01}
+                onChange={(e) => setDensity(Number(e.target.value))}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+          </div>
+
+          {plotMode === "angle" ? (
+            <>
+              <div>
+                <label className="mb-1 block text-sm font-medium">
+                  Energy (eV)
+                </label>
+                <input
+                  type="number"
+                  value={energy}
+                  step={100}
+                  onChange={(e) => setEnergy(Number(e.target.value))}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium">
+                  Angle Range (mrad)
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-xs text-muted-foreground">
+                      Start
+                    </label>
+                    <input
+                      type="number"
+                      value={angleStart}
+                      step={0.1}
+                      min={0.01}
+                      onChange={(e) => setAngleStart(Number(e.target.value))}
+                      className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-muted-foreground">
+                      End
+                    </label>
+                    <input
+                      type="number"
+                      value={angleEnd}
+                      step={1}
+                      onChange={(e) => setAngleEnd(Number(e.target.value))}
+                      className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-muted-foreground">
+                      Step
+                    </label>
+                    <input
+                      type="number"
+                      value={angleStep}
+                      step={0.01}
+                      min={0.001}
+                      onChange={(e) => setAngleStep(Number(e.target.value))}
+                      className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <label className="mb-1 block text-sm font-medium">
+                  Fixed Angle (mrad)
+                </label>
+                <input
+                  type="number"
+                  value={fixedAngle}
+                  step={0.1}
+                  min={0.01}
+                  onChange={(e) => setFixedAngle(Number(e.target.value))}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium">
+                  Energy Range (eV)
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-xs text-muted-foreground">
+                      Start
+                    </label>
+                    <input
+                      type="number"
+                      value={energyStart}
+                      step={100}
+                      min={100}
+                      onChange={(e) => setEnergyStart(Number(e.target.value))}
+                      className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-muted-foreground">
+                      End
+                    </label>
+                    <input
+                      type="number"
+                      value={energyEnd}
+                      step={1000}
+                      onChange={(e) => setEnergyEnd(Number(e.target.value))}
+                      className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-muted-foreground">
+                      Step
+                    </label>
+                    <input
+                      type="number"
+                      value={energyStep}
+                      step={10}
+                      min={1}
+                      onChange={(e) => setEnergyStep(Number(e.target.value))}
+                      className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
+          <div>
+            <label className="mb-1 block text-sm font-medium">
+              Roughness (&Aring;)
+            </label>
+            <input
+              type="number"
+              value={roughness}
+              step={0.5}
+              min={0}
+              onChange={(e) => setRoughness(Number(e.target.value))}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium">
+              Polarization
+            </label>
+            <select
+              value={polarization}
+              onChange={(e) => setPolarization(e.target.value)}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <option value="s">s (sigma)</option>
+              <option value="p">p (pi)</option>
+              <option value="unpolarized">Unpolarized</option>
+            </select>
+          </div>
+
+          {criticalAngle !== null && (
+            <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
+              <p className="text-sm">
+                Critical angle:{" "}
+                <span className="font-mono font-semibold text-primary">
+                  {criticalAngle.toFixed(3)} mrad
+                </span>
+                <span className="ml-2 text-xs text-muted-foreground">
+                  at {energy} eV
+                </span>
+              </p>
+            </div>
+          )}
+
+          {/* Overlay materials */}
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={addOverlay}
+              className="rounded-md bg-secondary px-3 py-1.5 text-xs font-medium text-secondary-foreground hover:bg-secondary/80"
+            >
+              + Add to overlay
+            </button>
+            {overlays.map((o) => (
+              <div
+                key={o.id}
+                className="flex items-center justify-between rounded border border-border px-2 py-1 text-xs"
+              >
+                <span>{o.label}</span>
+                <button
+                  type="button"
+                  onClick={() => removeOverlay(o.id)}
+                  className="text-muted-foreground hover:text-destructive"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {error && <p className="text-sm text-destructive">{error}</p>}
+        </div>
+
+        {/* Plot */}
+        <ScientificPlot
+          traces={traces}
+          xTitle={
+            plotMode === "angle" ? "Grazing angle (mrad)" : "Energy (eV)"
+          }
+          yTitle="Reflectivity"
+          title={
+            plotMode === "angle"
+              ? `Mirror Reflectivity — ${formula} at ${energy} eV`
+              : `Mirror Reflectivity — ${formula} at ${fixedAngle} mrad`
+          }
+        />
+      </div>
+    </div>
+  );
+}

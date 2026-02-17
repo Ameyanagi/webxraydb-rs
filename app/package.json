@@ -1,0 +1,31 @@
+{
+  "name": "webxraydb-rs",
+  "version": "0.1.0",
+  "private": true,
+  "sideEffects": false,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build && tsc --noEmit",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@tanstack/react-router": "^1",
+    "@tanstack/react-start": "^1",
+    "plotly.js-basic-dist-min": "^3",
+    "react": "^19",
+    "react-dom": "^19",
+    "react-plotly.js": "^2"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^4",
+    "nitro": "3.0.1-alpha.2",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vite": "^7",
+    "vite-tsconfig-paths": "^5"
+  }
+}
