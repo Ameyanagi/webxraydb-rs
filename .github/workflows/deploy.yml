@@ -23,10 +23,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Rust toolchain + wasm-pack
+      # Rust toolchain + caching
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@wasm-pack
 
       # Build WASM
@@ -42,6 +43,8 @@ jobs:
 
       - name: Build app
         working-directory: app
+        env:
+          BASE_PATH: /${{ github.event.repository.name }}/
         run: bun run build
 
       # Copy index.html as 404.html for SPA routing
