@@ -11,6 +11,10 @@ export default defineConfig({
     tsConfigPaths({ projects: ["./tsconfig.json"] }),
     tanstackStart({
       srcDirectory: "src",
+      prerender: {
+        enabled: true,
+        crawlLinks: true,
+      },
     }),
     viteReact(),
   ],
