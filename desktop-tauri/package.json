@@ -1,0 +1,14 @@
+{
+  "name": "webxraydb-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "build:frontend": "cd .. && wasm-pack build crates/webxraydb-wasm --target web --out-dir ../../app/src/wasm-pkg && cd app && bun install --frozen-lockfile && bun run build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.1.0"
+  }
+}

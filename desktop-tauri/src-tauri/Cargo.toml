@@ -1,0 +1,16 @@
+[package]
+name = "webxraydb-desktop"
+version = "0.1.0"
+description = "WebXrayDB desktop application"
+authors = ["Ryuichi"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.77"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+
+[workspace]

@@ -1,0 +1,99 @@
+name: Desktop Release
+
+on:
+  push:
+    tags:
+      - "desktop-v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+          - os: windows-latest
+            platform: windows
+          - os: macos-latest
+            platform: macos
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux system dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: taiki-e/install-action@wasm-pack
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install desktop dependencies
+        working-directory: desktop-tauri
+        run: bun install --frozen-lockfile
+
+      - name: Build desktop bundles
+        working-directory: desktop-tauri
+        run: bun run build
+
+      - name: Package desktop bundles (macOS/Linux)
+        if: matrix.os != 'windows-latest'
+        run: |
+          cd desktop-tauri/src-tauri/target/release
+          tar -czf ../../../../webxraydb-desktop-${{ github.ref_name }}-${{ matrix.platform }}.tar.gz bundle
+
+      - name: Package desktop bundles (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: powershell
+        run: |
+          Compress-Archive `
+            -Path desktop-tauri/src-tauri/target/release/bundle/* `
+            -DestinationPath webxraydb-desktop-${{ github.ref_name }}-${{ matrix.platform }}.zip `
+            -Force
+
+      - name: Upload desktop bundle archives
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.platform }}
+          path: webxraydb-desktop-${{ github.ref_name }}-${{ matrix.platform }}.*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: desktop-release-artifacts
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: WebXrayDB Desktop ${{ github.ref_name }}
+          body: |
+            Independent desktop release of WebXrayDB.
+
+            Included bundles are built for macOS, Windows, and Linux.
+          files: |
+            desktop-release-artifacts/**/*

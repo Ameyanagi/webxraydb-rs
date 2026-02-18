@@ -7,6 +7,8 @@ node_modules/
 app/dist/
 app/.output/
 app/.vinxi/
+desktop-tauri/src-tauri/target/
+desktop-tauri/src-tauri/gen/
 
 # WASM build output (generated, not committed)
 app/src/wasm-pkg/
