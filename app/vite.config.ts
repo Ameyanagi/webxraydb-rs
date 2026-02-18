@@ -20,6 +20,19 @@ export default defineConfig({
   ],
   build: {
     target: "esnext",
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("react-plotly.js") || id.includes("plotly.js")) {
+            return "plotly-vendor";
+          }
+          if (id.includes("wasm-pkg")) {
+            return "wasm-core";
+          }
+          return undefined;
+        },
+      },
+    },
   },
   optimizeDeps: {
     exclude: ["webxraydb-wasm"],

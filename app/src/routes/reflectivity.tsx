@@ -2,23 +2,21 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useCallback } from "react";
 import { useWasm } from "~/hooks/useWasm";
 import { mirror_reflectivity, xray_delta_beta } from "~/lib/wasm-api";
+import { validateRange } from "~/lib/inputs";
+import { errorState, type CalculationState, readyState } from "~/lib/ui-state";
 import { ScientificPlot } from "~/components/plot/ScientificPlot";
 import type {
   PlotTrace,
   PlotAnnotation,
 } from "~/components/plot/ScientificPlot";
 import { MaterialPicker } from "~/components/material-picker/MaterialPicker";
+import { LoadingState } from "~/components/ui/LoadingState";
+import { ErrorBanner } from "~/components/ui/ErrorBanner";
+import { PageHeader } from "~/components/ui/PageHeader";
 
 export const Route = createFileRoute("/reflectivity")({
   component: ReflectivityPage,
 });
-
-interface CoatingLayer {
-  id: number;
-  formula: string;
-  density: number;
-  label: string;
-}
 
 const MIRROR_PRESETS = [
   { label: "Si", formula: "Si", density: 2.33 },
@@ -29,26 +27,31 @@ const MIRROR_PRESETS = [
   { label: "Cr", formula: "Cr", density: 7.19 },
 ];
 
-const COMPARE_PRESETS = [
-  { formula: "Si", density: 2.33 },
-  { formula: "Ni", density: 8.9 },
-  { formula: "Rh", density: 12.41 },
-  { formula: "Pt", density: 21.45 },
-];
-
 type PlotMode = "angle" | "energy";
 
-let nextId = 1;
+interface CustomMaterial {
+  id: number;
+  formula: string;
+  density: number;
+}
+
+let nextCustomId = 1;
 
 function ReflectivityPage() {
   const ready = useWasm();
 
-  const [formula, setFormula] = useState("Si");
-  const [density, setDensity] = useState(2.33);
   const [energy, setEnergy] = useState(10000);
   const [roughness, setRoughness] = useState(0);
   const [polarization, setPolarization] = useState("s");
   const [plotMode, setPlotMode] = useState<PlotMode>("energy");
+
+  // Toggle-based material selection from presets
+  const [activePresets, setActivePresets] = useState<Set<string>>(
+    () => new Set(["Si"]),
+  );
+
+  // Custom materials added via MaterialPicker
+  const [customMaterials, setCustomMaterials] = useState<CustomMaterial[]>([]);
 
   // Angle scan params
   const [angleStart, setAngleStart] = useState(0.1);
@@ -61,31 +64,27 @@ function ReflectivityPage() {
   const [energyEnd, setEnergyEnd] = useState(50000);
   const [energyStep, setEnergyStep] = useState(100);
 
-  const [overlays, setOverlays] = useState<CoatingLayer[]>([]);
-  const [compareMode, setCompareMode] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleMaterialSelect = useCallback((f: string, d: number) => {
-    setFormula(f);
-    setDensity(d);
-    setCompareMode(false);
+  const togglePreset = useCallback((label: string) => {
+    setActivePresets((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) {
+        next.delete(label);
+      } else {
+        next.add(label);
+      }
+      return next;
+    });
   }, []);
 
-  const addOverlay = useCallback(() => {
-    if (!formula.trim()) return;
-    setOverlays((prev) => [
+  const handleMaterialSelect = useCallback((f: string, d: number) => {
+    setCustomMaterials((prev) => [
       ...prev,
-      {
-        id: nextId++,
-        formula: formula.trim(),
-        density,
-        label: `${formula.trim()} (ρ=${density})`,
-      },
+      { id: nextCustomId++, formula: f, density: d },
     ]);
-  }, [formula, density]);
+  }, []);
 
-  const removeOverlay = useCallback((id: number) => {
-    setOverlays((prev) => prev.filter((o) => o.id !== id));
+  const removeCustom = useCallback((id: number) => {
+    setCustomMaterials((prev) => prev.filter((m) => m.id !== id));
   }, []);
 
   // Calculate reflectivity for one material across angles
@@ -133,94 +132,102 @@ function ReflectivityPage() {
     [fixedAngle, roughness, polarization],
   );
 
-  // Materials to plot
+  // Materials to plot — from active presets + custom materials
   const materialsToPlot = useMemo(() => {
-    if (compareMode) return COMPARE_PRESETS;
-    const items = [{ formula: formula.trim(), density }];
-    for (const ov of overlays) {
-      items.push({ formula: ov.formula, density: ov.density });
-    }
-    return items.filter((m) => m.formula);
-  }, [compareMode, formula, density, overlays]);
-
-  // Angle scan traces
-  const angleTraces: PlotTrace[] = useMemo(() => {
-    if (!ready || plotMode !== "angle") return [];
-    setError(null);
-
-    const thetasMrad: number[] = [];
-    for (let a = angleStart; a <= angleEnd; a += angleStep) {
-      thetasMrad.push(a);
-    }
-    if (thetasMrad.length === 0) return [];
-
-    const thetaRad = new Float64Array(thetasMrad.map((t) => t * 0.001));
-    const result: PlotTrace[] = [];
-
-    for (const mat of materialsToPlot) {
-      const refl = calcAngleScan(mat.formula, mat.density, thetaRad);
-      if (refl) {
-        result.push({
-          x: thetasMrad,
-          y: refl,
-          name: `${mat.formula} (ρ=${mat.density})`,
-        });
+    const items: { formula: string; density: number }[] = [];
+    for (const preset of MIRROR_PRESETS) {
+      if (activePresets.has(preset.label)) {
+        items.push({ formula: preset.formula, density: preset.density });
       }
     }
+    for (const cm of customMaterials) {
+      items.push({ formula: cm.formula, density: cm.density });
+    }
+    return items;
+  }, [activePresets, customMaterials]);
 
-    if (result.length === 0 && !compareMode) {
-      setError("Could not calculate reflectivity for any material");
+  const traceState = useMemo<CalculationState<PlotTrace[]>>(() => {
+    if (!ready) return { status: "idle", data: null, error: null };
+    if (!materialsToPlot.length)
+      return errorState("Select at least one material");
+    if (roughness < 0) return errorState("Roughness cannot be negative");
+
+    if (plotMode === "angle") {
+      const range = validateRange(angleStart, angleEnd, angleStep, 50000);
+      if (!range.valid)
+        return errorState(range.error ?? "Invalid angle range");
+      if (!(energy > 0))
+        return errorState("Energy must be greater than zero");
+
+      const thetasMrad: number[] = [];
+      for (let a = angleStart; a <= angleEnd; a += angleStep) {
+        thetasMrad.push(a);
+      }
+      const thetaRad = new Float64Array(thetasMrad.map((t) => t * 0.001));
+      const traces: PlotTrace[] = [];
+
+      for (const mat of materialsToPlot) {
+        const refl = calcAngleScan(mat.formula, mat.density, thetaRad);
+        if (refl) {
+          traces.push({
+            x: thetasMrad,
+            y: refl,
+            name: `${mat.formula} (ρ=${mat.density})`,
+          });
+        }
+      }
+      if (!traces.length)
+        return errorState(
+          "Could not calculate reflectivity for any material",
+        );
+      return readyState(traces);
     }
 
-    return result;
-  }, [
-    ready,
-    plotMode,
-    materialsToPlot,
-    calcAngleScan,
-    angleStart,
-    angleEnd,
-    angleStep,
-  ]);
-
-  // Energy scan traces
-  const energyTraces: PlotTrace[] = useMemo(() => {
-    if (!ready || plotMode !== "energy") return [];
-    setError(null);
+    const range = validateRange(energyStart, energyEnd, energyStep, 50000);
+    if (!range.valid)
+      return errorState(range.error ?? "Invalid energy range");
+    if (!(fixedAngle > 0))
+      return errorState("Grazing angle must be greater than zero");
 
     const energies: number[] = [];
     for (let e = energyStart; e <= energyEnd; e += energyStep) {
       energies.push(e);
     }
-    if (energies.length === 0) return [];
 
-    const result: PlotTrace[] = [];
-
+    const traces: PlotTrace[] = [];
     for (const mat of materialsToPlot) {
       try {
         const refls = calcEnergyScan(mat.formula, mat.density, energies);
-        result.push({
+        traces.push({
           x: energies,
           y: refls,
           name: `${mat.formula} (ρ=${mat.density})`,
         });
       } catch {
-        // skip
+        // ignore invalid material
       }
     }
-
-    return result;
+    if (!traces.length)
+      return errorState(
+        "Could not calculate reflectivity for any material",
+      );
+    return readyState(traces);
   }, [
     ready,
-    plotMode,
     materialsToPlot,
-    calcEnergyScan,
+    roughness,
+    plotMode,
+    angleStart,
+    angleEnd,
+    angleStep,
+    energy,
+    calcAngleScan,
     energyStart,
     energyEnd,
     energyStep,
+    fixedAngle,
+    calcEnergyScan,
   ]);
-
-  const traces = plotMode === "angle" ? angleTraces : energyTraces;
 
   // Critical angle annotations
   const criticalAngleAnnotations: PlotAnnotation[] = useMemo(() => {
@@ -243,56 +250,34 @@ function ReflectivityPage() {
     return annotations;
   }, [ready, plotMode, materialsToPlot, energy]);
 
-  // Critical angle display for single material
-  const criticalAngle = useMemo(() => {
-    if (!ready || !formula.trim() || compareMode) return null;
-    try {
-      const db = xray_delta_beta(formula.trim(), density, energy) as {
-        delta: number;
-      };
-      return Math.sqrt(2 * db.delta) * 1000;
-    } catch {
-      return null;
-    }
-  }, [ready, formula, density, energy, compareMode]);
+  // Primary material name for title
+  const primaryName = useMemo(() => {
+    if (materialsToPlot.length === 1) return materialsToPlot[0].formula;
+    return null;
+  }, [materialsToPlot]);
 
   if (!ready) {
-    return (
-      <div className="flex items-center gap-2 text-muted-foreground">
-        <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-        Loading X-ray database...
-      </div>
-    );
+    return <LoadingState />;
   }
 
   return (
     <div>
-      <h1 className="mb-4 text-xl font-bold md:text-2xl">Mirror Reflectivity</h1>
-      <p className="mb-6 text-muted-foreground">
-        Calculate X-ray mirror reflectivity as a function of angle or energy.
-      </p>
+      <PageHeader
+        title="Mirror Reflectivity"
+        description="Calculate X-ray mirror reflectivity as a function of angle or energy."
+      />
 
       <div className="mb-6 grid gap-6 grid-cols-1 lg:grid-cols-[350px_1fr]">
         {/* Controls */}
         <div className="order-2 space-y-4 lg:order-none">
-          {/* Plot mode toggle */}
+          {/* Plot mode toggle — R vs Energy first (left) */}
           <div>
             <label className="mb-1 block text-sm font-medium">Plot Mode</label>
             <div className="flex gap-1">
               <button
                 type="button"
-                onClick={() => setPlotMode("angle")}
-                className={`flex-1 rounded px-3 py-2 text-sm ${
-                  plotMode === "angle"
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
-                }`}
-              >
-                R vs Angle
-              </button>
-              <button
-                type="button"
                 onClick={() => setPlotMode("energy")}
+                aria-pressed={plotMode === "energy"}
                 className={`flex-1 rounded px-3 py-2 text-sm ${
                   plotMode === "energy"
                     ? "bg-primary text-primary-foreground"
@@ -301,81 +286,72 @@ function ReflectivityPage() {
               >
                 R vs Energy
               </button>
+              <button
+                type="button"
+                onClick={() => setPlotMode("angle")}
+                aria-pressed={plotMode === "angle"}
+                className={`flex-1 rounded px-3 py-2 text-sm ${
+                  plotMode === "angle"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                }`}
+              >
+                R vs Angle
+              </button>
             </div>
           </div>
 
-          {/* Compare common mirrors */}
+          {/* Mirror coatings — toggle buttons */}
           <div>
-            <button
-              type="button"
-              onClick={() => setCompareMode(!compareMode)}
-              className={`w-full rounded px-3 py-2 text-sm font-medium ${
-                compareMode
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
-              }`}
-            >
-              {compareMode
-                ? "Comparing: Si, Ni, Rh, Pt"
-                : "Compare common mirrors"}
-            </button>
+            <label className="mb-1 block text-sm font-medium">
+              Mirror Coatings
+            </label>
+            <div className="flex flex-wrap gap-1">
+              {MIRROR_PRESETS.map((p) => (
+                <button
+                  key={p.label}
+                  type="button"
+                  onClick={() => togglePreset(p.label)}
+                  aria-pressed={activePresets.has(p.label)}
+                  className={`rounded px-2.5 py-1 text-xs font-medium ${
+                    activePresets.has(p.label)
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
           </div>
 
-          {!compareMode && (
-            <>
-              {/* Quick presets */}
-              <div>
-                <label className="mb-1 block text-sm font-medium">
-                  Mirror Coating
-                </label>
-                <div className="mb-2 flex flex-wrap gap-1">
-                  {MIRROR_PRESETS.map((p) => (
-                    <button
-                      key={p.label}
-                      type="button"
-                      onClick={() => {
-                        setFormula(p.formula);
-                        setDensity(p.density);
-                      }}
-                      className={`rounded px-2 py-1 text-xs font-medium ${formula === p.formula ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground hover:bg-secondary/80"}`}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
+          {/* Custom material picker */}
+          <MaterialPicker
+            onSelect={handleMaterialSelect}
+            label="Add Custom Material"
+          />
 
-              <MaterialPicker
-                onSelect={handleMaterialSelect}
-                label="Custom Material"
-              />
-
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1 block text-sm font-medium">
-                    Formula
-                  </label>
-                  <input
-                    type="text"
-                    value={formula}
-                    onChange={(e) => setFormula(e.target.value)}
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  />
+          {/* Custom materials list */}
+          {customMaterials.length > 0 && (
+            <div className="space-y-1">
+              {customMaterials.map((m) => (
+                <div
+                  key={m.id}
+                  className="flex items-center justify-between rounded border border-border px-2 py-1 text-xs"
+                >
+                  <span>
+                    {m.formula} (ρ={m.density})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removeCustom(m.id)}
+                    className="text-muted-foreground hover:text-destructive"
+                  >
+                    ✕
+                  </button>
                 </div>
-                <div>
-                  <label className="mb-1 block text-sm font-medium">
-                    Density (g/cm&sup3;)
-                  </label>
-                  <input
-                    type="number"
-                    value={density}
-                    step={0.01}
-                    onChange={(e) => setDensity(Number(e.target.value))}
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  />
-                </div>
-              </div>
-            </>
+              ))}
+            </div>
           )}
 
           {plotMode === "angle" ? (
@@ -532,73 +508,31 @@ function ReflectivityPage() {
             </select>
           </div>
 
-          {criticalAngle !== null && (
-            <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
-              <p className="text-sm">
-                Critical angle:{" "}
-                <span className="font-mono font-semibold text-primary">
-                  {criticalAngle.toFixed(3)} mrad
-                </span>
-                <span className="ml-2 text-xs text-muted-foreground">
-                  at {energy} eV
-                </span>
-              </p>
-            </div>
-          )}
-
-          {/* Overlay materials (single material mode only) */}
-          {!compareMode && (
-            <div className="space-y-2">
-              <button
-                type="button"
-                onClick={addOverlay}
-                className="rounded-md bg-secondary px-3 py-1.5 text-xs font-medium text-secondary-foreground hover:bg-secondary/80"
-              >
-                + Add to overlay
-              </button>
-              {overlays.map((o) => (
-                <div
-                  key={o.id}
-                  className="flex items-center justify-between rounded border border-border px-2 py-1 text-xs"
-                >
-                  <span>{o.label}</span>
-                  <button
-                    type="button"
-                    onClick={() => removeOverlay(o.id)}
-                    className="text-muted-foreground hover:text-destructive"
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {traceState.error && <ErrorBanner message={traceState.error} />}
         </div>
 
         {/* Plot */}
         <div className="order-1 lg:order-none">
-        <ScientificPlot
-          traces={traces}
-          xTitle={
-            plotMode === "angle" ? "Grazing angle (mrad)" : "Energy (eV)"
-          }
-          yTitle="Reflectivity"
-          title={
-            plotMode === "angle"
-              ? compareMode
-                ? `Mirror Reflectivity at ${energy} eV`
-                : `Mirror Reflectivity — ${formula} at ${energy} eV`
-              : compareMode
-                ? `Mirror Reflectivity at ${fixedAngle} mrad`
-                : `Mirror Reflectivity — ${formula} at ${fixedAngle} mrad`
-          }
-          defaultLogY
-          verticalLines={
-            plotMode === "angle" ? criticalAngleAnnotations : undefined
-          }
-        />
+          <ScientificPlot
+            traces={traceState.data ?? []}
+            xTitle={
+              plotMode === "angle" ? "Grazing angle (mrad)" : "Energy (eV)"
+            }
+            yTitle="Reflectivity"
+            title={
+              plotMode === "angle"
+                ? primaryName
+                  ? `Mirror Reflectivity — ${primaryName} at ${energy} eV`
+                  : `Mirror Reflectivity at ${energy} eV`
+                : primaryName
+                  ? `Mirror Reflectivity — ${primaryName} at ${fixedAngle} mrad`
+                  : `Mirror Reflectivity at ${fixedAngle} mrad`
+            }
+            defaultLogY
+            verticalLines={
+              plotMode === "angle" ? criticalAngleAnnotations : undefined
+            }
+          />
         </div>
       </div>
     </div>

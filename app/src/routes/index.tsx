@@ -7,10 +7,16 @@ import {
   xray_edges,
   xray_lines,
   corehole_widths,
+  mu_elam,
 } from "~/lib/wasm-api";
+import { energyRange } from "~/lib/constants";
 import { PeriodicTable } from "~/components/periodic-table/PeriodicTable";
 import type { ElementData } from "~/components/periodic-table/types";
+import { ScientificPlot } from "~/components/plot/ScientificPlot";
+import type { PlotTrace } from "~/components/plot/ScientificPlot";
 import { downloadCsv } from "~/lib/csv-export";
+import { LoadingState } from "~/components/ui/LoadingState";
+import { PageHeader } from "~/components/ui/PageHeader";
 
 const HC_ANGSTROM = 12398.4;
 
@@ -93,89 +99,160 @@ function HomePage() {
     }
   }, [ready, selectedZ]);
 
+  // Attenuation plot for the summary panel
+  const attenuationPlot = useMemo<PlotTrace[]>(() => {
+    if (!data || data.edges.length === 0) return [];
+    try {
+      const energies = energyRange(100, 40000, 50);
+      const mu = mu_elam(data.info.symbol, energies, "total") as Float64Array;
+      return [
+        {
+          x: Array.from(energies),
+          y: Array.from(mu),
+          name: `${data.info.symbol} total`,
+        },
+      ];
+    } catch {
+      return [];
+    }
+  }, [data]);
+
+  // Top fluorescence lines (sorted by intensity, top 5)
+  const topLines = useMemo(() => {
+    if (!data) return [];
+    return [...data.lines]
+      .sort((a, b) => b.intensity - a.intensity)
+      .slice(0, 5);
+  }, [data]);
+
   if (!ready) {
-    return (
-      <div className="flex items-center gap-2 text-muted-foreground">
-        <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-        Loading X-ray database...
-      </div>
-    );
+    return <LoadingState />;
   }
 
   return (
     <div>
-      <h1 className="mb-4 text-xl font-bold md:text-2xl">X-ray Analysis Tools</h1>
-      <p className="mb-6 text-muted-foreground">
-        Click an element to view its X-ray properties.
-      </p>
-
-      <PeriodicTable
-        elements={elements}
-        selectedZ={selectedZ}
-        onSelect={setSelectedZ}
+      <PageHeader
+        title="X-ray Analysis Tools"
+        description="Click an element to view its X-ray properties."
       />
 
-      {data && (
-        <div className="mt-6 space-y-4">
-          {/* Element header */}
-          <div className="flex items-center gap-4">
-            <div className="flex h-16 w-16 items-center justify-center rounded-lg bg-primary/10 text-2xl font-bold text-primary">
-              {data.info.symbol}
-            </div>
-            <div>
-              <h2 className="text-xl font-bold">
-                {data.info.name}{" "}
-                <span className="text-muted-foreground">
-                  (Z={data.info.z})
-                </span>
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                Molar mass: {data.info.molar_mass.toFixed(4)} g/mol
-                &nbsp;&middot;&nbsp; Density: {data.info.density.toFixed(4)}{" "}
-                g/cm&sup3;
-              </p>
-            </div>
-          </div>
+      {/* Periodic table + summary panel side by side */}
+      <div className="flex flex-col xl:flex-row xl:gap-4">
+        <div className="shrink-0">
+          <PeriodicTable
+            elements={elements}
+            selectedZ={selectedZ}
+            onSelect={setSelectedZ}
+          />
+        </div>
 
-          {/* Filter suggestions */}
-          {(data.filterZ1 || data.filterZ2) && (
-            <div className="rounded-lg border border-border bg-card p-3">
-              <h3 className="mb-2 text-sm font-semibold">
-                Fluorescence Filter Suggestions
-              </h3>
-              <div className="flex gap-3">
-                {data.filterZ1 && (
-                  <button
-                    type="button"
-                    onClick={() => setSelectedZ(data.filterZ1!.z)}
-                    className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-sm hover:bg-primary/10"
-                  >
-                    <span className="font-semibold text-primary">
-                      {data.filterZ1.symbol}
-                    </span>
-                    <span className="ml-2 text-xs text-muted-foreground">
-                      Z-1 &middot; K-edge: {data.filterZ1.kEdge.toFixed(1)} eV
-                    </span>
-                  </button>
-                )}
-                {data.filterZ2 && (
-                  <button
-                    type="button"
-                    onClick={() => setSelectedZ(data.filterZ2!.z)}
-                    className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm hover:bg-accent/50"
-                  >
-                    <span className="font-semibold">
-                      {data.filterZ2.symbol}
-                    </span>
-                    <span className="ml-2 text-xs text-muted-foreground">
-                      Z-2 &middot; K-edge: {data.filterZ2.kEdge.toFixed(1)} eV
-                    </span>
-                  </button>
-                )}
+        {/* Quick summary panel — appears to the right on xl screens */}
+        {data && (
+          <div className="mt-4 flex min-w-0 flex-1 flex-col gap-3 xl:mt-0">
+            {/* Element header (compact) */}
+            <div className="flex items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 text-xl font-bold text-primary">
+                {data.info.symbol}
+              </div>
+              <div>
+                <h2 className="text-lg font-bold">
+                  {data.info.name}{" "}
+                  <span className="text-muted-foreground text-sm">
+                    Z={data.info.z}
+                  </span>
+                </h2>
+                <p className="text-xs text-muted-foreground">
+                  {data.info.molar_mass.toFixed(2)} g/mol &middot;{" "}
+                  {data.info.density.toFixed(3)} g/cm&sup3;
+                </p>
               </div>
             </div>
-          )}
 
+            {/* Attenuation card */}
+            {attenuationPlot.length > 0 && (
+              <div className="rounded-lg border border-border bg-card p-2">
+                <h3 className="mb-1 px-1 text-xs font-semibold text-muted-foreground">
+                  X-ray Attenuation (&mu;/&rho;)
+                </h3>
+                <ScientificPlot
+                  traces={attenuationPlot}
+                  xTitle="Energy (eV)"
+                  yTitle="μ/ρ (cm²/g)"
+                  height={180}
+                  defaultLogY
+                  defaultLogX
+                  showLogToggle={false}
+                />
+              </div>
+            )}
+
+            {/* Top fluorescence lines card */}
+            {topLines.length > 0 && (
+              <div className="rounded-lg border border-border bg-card p-3">
+                <h3 className="mb-2 text-xs font-semibold text-muted-foreground">
+                  Fluorescence Lines (top {topLines.length})
+                </h3>
+                <div className="space-y-1">
+                  {topLines.map((line) => (
+                    <div
+                      key={line.label}
+                      className="flex items-center justify-between text-sm"
+                    >
+                      <span className="font-medium">{line.label}</span>
+                      <span className="font-mono text-xs text-muted-foreground">
+                        {line.energy.toFixed(1)} eV
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Filter suggestions card */}
+            {(data.filterZ1 || data.filterZ2) && (
+              <div className="rounded-lg border border-border bg-card p-3">
+                <h3 className="mb-2 text-xs font-semibold text-muted-foreground">
+                  Filter Suggestions
+                </h3>
+                <div className="flex gap-2">
+                  {data.filterZ1 && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedZ(data.filterZ1!.z)}
+                      className="flex-1 rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-sm hover:bg-primary/10"
+                    >
+                      <span className="font-semibold text-primary">
+                        {data.filterZ1.symbol}
+                      </span>
+                      <span className="ml-1 text-xs text-muted-foreground">
+                        Z-1 &middot; {data.filterZ1.kEdge.toFixed(0)} eV
+                      </span>
+                    </button>
+                  )}
+                  {data.filterZ2 && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedZ(data.filterZ2!.z)}
+                      className="flex-1 rounded-lg border border-border bg-card px-3 py-1.5 text-sm hover:bg-accent/50"
+                    >
+                      <span className="font-semibold">
+                        {data.filterZ2.symbol}
+                      </span>
+                      <span className="ml-1 text-xs text-muted-foreground">
+                        Z-2 &middot; {data.filterZ2.kEdge.toFixed(0)} eV
+                      </span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Full data tables below */}
+      {data && (
+        <div className="mt-6 space-y-4">
           <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
             {/* Absorption Edges */}
             <div className="rounded-lg border border-border bg-card p-4">
@@ -221,8 +298,12 @@ function HomePage() {
                         <th className="pb-2 pr-4">Edge</th>
                         <th className="pb-2 pr-4">Energy (eV)</th>
                         <th className="pb-2 pr-4">&lambda; (&Aring;)</th>
-                        <th className="hidden pb-2 pr-4 sm:table-cell">Fluor. Yield</th>
-                        <th className="hidden pb-2 sm:table-cell">Jump Ratio</th>
+                        <th className="hidden pb-2 pr-4 sm:table-cell">
+                          Fluor. Yield
+                        </th>
+                        <th className="hidden pb-2 sm:table-cell">
+                          Jump Ratio
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -303,7 +384,9 @@ function HomePage() {
                         <th className="pb-2 pr-4">Energy (eV)</th>
                         <th className="pb-2 pr-4">&lambda; (&Aring;)</th>
                         <th className="pb-2 pr-4">Intensity</th>
-                        <th className="hidden pb-2 sm:table-cell">Transition</th>
+                        <th className="hidden pb-2 sm:table-cell">
+                          Transition
+                        </th>
                       </tr>
                     </thead>
                     <tbody>

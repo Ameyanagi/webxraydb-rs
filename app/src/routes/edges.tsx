@@ -2,8 +2,15 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useWasm } from "~/hooks/useWasm";
 import { all_elements, xray_edges, guess_edge } from "~/lib/wasm-api";
+import { parseNumberOrNull } from "~/lib/inputs";
+import { findClosestIndexByValue, stableSort } from "~/lib/table";
 import type { ElementData } from "~/components/periodic-table/types";
 import { downloadCsv } from "~/lib/csv-export";
+import { ScientificPlot } from "~/components/plot/ScientificPlot";
+import type { PlotTrace, PlotAnnotation } from "~/components/plot/ScientificPlot";
+import { PageHeader } from "~/components/ui/PageHeader";
+import { LoadingState } from "~/components/ui/LoadingState";
+import { EmptyState } from "~/components/ui/EmptyState";
 
 const HC_ANGSTROM = 12398.4;
 
@@ -48,8 +55,8 @@ function EdgeFinderPage() {
 
   // The effective search energy (adjusted for harmonics)
   const effectiveEnergy = useMemo(() => {
-    const raw = parseFloat(energySearch);
-    if (isNaN(raw) || raw <= 0) return null;
+    const raw = parseNumberOrNull(energySearch);
+    if (raw === null || raw <= 0) return null;
     switch (harmonic) {
       case "2nd":
         return raw / 2;
@@ -115,7 +122,7 @@ function EdgeFinderPage() {
       rows = rows.filter((r) => r.edge === edgeFilter);
     }
 
-    rows = [...rows].sort((a, b) => {
+    rows = stableSort(rows, (a, b) => {
       const cmp = sortBy === "energy" ? a.energy - b.energy : a.z - b.z;
       return sortAsc ? cmp : -cmp;
     });
@@ -126,17 +133,7 @@ function EdgeFinderPage() {
   // Find the index of the closest edge to the searched energy
   const closestIndex = useMemo(() => {
     if (effectiveEnergy === null || filtered.length === 0) return -1;
-
-    let bestIdx = 0;
-    let bestDist = Math.abs(filtered[0].energy - effectiveEnergy);
-    for (let i = 1; i < filtered.length; i++) {
-      const dist = Math.abs(filtered[i].energy - effectiveEnergy);
-      if (dist < bestDist) {
-        bestDist = dist;
-        bestIdx = i;
-      }
-    }
-    return bestIdx;
+    return findClosestIndexByValue(filtered, (row) => row.energy, effectiveEnergy);
   }, [filtered, effectiveEnergy]);
 
   // Scroll to highlighted row when it changes
@@ -171,22 +168,59 @@ function EdgeFinderPage() {
     [sortBy, sortAsc],
   );
 
+  // Edge scatter plot: group edges by type, X = energy, Y = Z
+  const EDGE_COLORS: Record<string, string> = {
+    K: "#60a5fa",
+    L1: "#f97316",
+    L2: "#fb923c",
+    L3: "#fdba74",
+    M1: "#a855f7",
+    M2: "#c084fc",
+    M3: "#d8b4fe",
+    M4: "#e9d5ff",
+    M5: "#f3e8ff",
+  };
+
+  const edgePlotTraces: PlotTrace[] = useMemo(() => {
+    if (filtered.length === 0) return [];
+    const byType = new Map<string, { x: number[]; y: number[] }>();
+    for (const r of filtered) {
+      let group = byType.get(r.edge);
+      if (!group) {
+        group = { x: [], y: [] };
+        byType.set(r.edge, group);
+      }
+      group.x.push(r.energy);
+      group.y.push(r.z);
+    }
+    const traces: PlotTrace[] = [];
+    for (const [edge, data] of byType) {
+      traces.push({
+        x: data.x,
+        y: data.y,
+        name: edge,
+        mode: "markers",
+        line: { color: EDGE_COLORS[edge] ?? "#888" },
+      });
+    }
+    return traces;
+  }, [filtered]);
+
+  const edgePlotAnnotations: PlotAnnotation[] = useMemo(() => {
+    if (effectiveEnergy === null) return [];
+    return [{ x: effectiveEnergy, text: `${effectiveEnergy.toFixed(0)} eV`, color: "#ef4444" }];
+  }, [effectiveEnergy]);
+
   if (!ready) {
-    return (
-      <div className="flex items-center gap-2 text-muted-foreground">
-        <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-        Loading X-ray database...
-      </div>
-    );
+    return <LoadingState />;
   }
 
   return (
     <div>
-      <h1 className="mb-4 text-xl font-bold md:text-2xl">Edge Finder</h1>
-      <p className="mb-6 text-muted-foreground">
-        Enter an energy to find the closest absorption edge. Use harmonic
-        buttons to find edges at 1/2 or 1/3 of the energy.
-      </p>
+      <PageHeader
+        title="Edge Finder"
+        description="Enter an energy to find the closest absorption edge. Use harmonic buttons to find edges at 1/2 or 1/3 of the energy."
+      />
 
       <div className="mb-4 flex flex-wrap items-end gap-4">
         <div>
@@ -223,6 +257,7 @@ function EdgeFinderPage() {
                 key={h}
                 type="button"
                 onClick={() => setHarmonic(h)}
+                aria-pressed={harmonic === h}
                 className={`rounded px-3 py-2 text-sm ${
                   harmonic === h
                     ? "bg-primary text-primary-foreground"
@@ -253,6 +288,21 @@ function EdgeFinderPage() {
               </span>
             )}
           </p>
+        </div>
+      )}
+
+      {edgePlotTraces.length > 0 && (
+        <div className="mb-4">
+          <ScientificPlot
+            traces={edgePlotTraces}
+            xTitle="Energy (eV)"
+            yTitle="Atomic Number (Z)"
+            title="Absorption Edges"
+            height={350}
+            defaultLogX
+            showLogToggle
+            verticalLines={edgePlotAnnotations}
+          />
         </div>
       )}
 
@@ -291,70 +341,80 @@ function EdgeFinderPage() {
         )}
       </div>
 
-      <div
-        ref={scrollContainerRef}
-        className="max-h-[600px] overflow-y-auto rounded-lg border border-border"
-      >
-        <table className="w-full text-sm">
-          <thead className="sticky top-0 bg-card">
-            <tr className="border-b border-border text-left text-muted-foreground">
-              <th
-                className="cursor-pointer px-3 py-2"
-                onClick={() => toggleSort("z")}
-              >
-                Element {sortBy === "z" ? (sortAsc ? "\u2191" : "\u2193") : ""}
-              </th>
-              <th className="px-3 py-2">Edge</th>
-              <th
-                className="cursor-pointer px-3 py-2"
-                onClick={() => toggleSort("energy")}
-              >
-                Energy (eV){" "}
-                {sortBy === "energy" ? (sortAsc ? "\u2191" : "\u2193") : ""}
-              </th>
-              <th className="hidden px-3 py-2 sm:table-cell">&lambda; (&Aring;)</th>
-              <th className="hidden px-3 py-2 sm:table-cell">Fluor. Yield</th>
-              <th className="hidden px-3 py-2 sm:table-cell">Jump Ratio</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((r, i) => {
-              const isHighlight = i === closestIndex;
-              return (
-                <tr
-                  key={`${r.element}-${r.edge}-${i}`}
-                  ref={isHighlight ? highlightRef : undefined}
-                  className={
-                    isHighlight
-                      ? "border-b border-primary/40 bg-primary/15 text-foreground"
-                      : "border-b border-border/30 hover:bg-accent/50"
-                  }
-                >
-                  <td className="px-3 py-1.5 font-medium">
-                    {r.element}{" "}
-                    <span className="text-muted-foreground">(Z={r.z})</span>
-                  </td>
-                  <td className="px-3 py-1.5">{r.edge}</td>
-                  <td className="px-3 py-1.5 font-mono">
-                    {r.energy.toFixed(1)}
-                  </td>
-                  <td className="hidden px-3 py-1.5 font-mono text-muted-foreground sm:table-cell">
-                    {r.energy > 0
-                      ? (HC_ANGSTROM / r.energy).toFixed(4)
-                      : "\u2014"}
-                  </td>
-                  <td className="hidden px-3 py-1.5 font-mono sm:table-cell">
-                    {r.fluorescenceYield.toFixed(4)}
-                  </td>
-                  <td className="hidden px-3 py-1.5 font-mono sm:table-cell">
-                    {r.jumpRatio.toFixed(4)}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      {filtered.length === 0 ? (
+        <EmptyState message="No edges match the current filters." />
+      ) : (
+        <div
+          ref={scrollContainerRef}
+          className="max-h-[600px] overflow-y-auto rounded-lg border border-border"
+        >
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 bg-card">
+              <tr className="border-b border-border text-left text-muted-foreground">
+                <th className="px-3 py-2">
+                  <button
+                    type="button"
+                    onClick={() => toggleSort("z")}
+                    className="cursor-pointer hover:text-foreground"
+                  >
+                    Element {sortBy === "z" ? (sortAsc ? "\u2191" : "\u2193") : ""}
+                  </button>
+                </th>
+                <th className="px-3 py-2">Edge</th>
+                <th className="px-3 py-2">
+                  <button
+                    type="button"
+                    onClick={() => toggleSort("energy")}
+                    className="cursor-pointer hover:text-foreground"
+                  >
+                    Energy (eV){" "}
+                    {sortBy === "energy" ? (sortAsc ? "\u2191" : "\u2193") : ""}
+                  </button>
+                </th>
+                <th className="hidden px-3 py-2 sm:table-cell">&lambda; (&Aring;)</th>
+                <th className="hidden px-3 py-2 sm:table-cell">Fluor. Yield</th>
+                <th className="hidden px-3 py-2 sm:table-cell">Jump Ratio</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((r, i) => {
+                const isHighlight = i === closestIndex;
+                return (
+                  <tr
+                    key={`${r.element}-${r.edge}-${i}`}
+                    ref={isHighlight ? highlightRef : undefined}
+                    className={
+                      isHighlight
+                        ? "border-b border-primary/40 bg-primary/15 text-foreground"
+                        : "border-b border-border/30 hover:bg-accent/50"
+                    }
+                  >
+                    <td className="px-3 py-1.5 font-medium">
+                      {r.element}{" "}
+                      <span className="text-muted-foreground">(Z={r.z})</span>
+                    </td>
+                    <td className="px-3 py-1.5">{r.edge}</td>
+                    <td className="px-3 py-1.5 font-mono">
+                      {r.energy.toFixed(1)}
+                    </td>
+                    <td className="hidden px-3 py-1.5 font-mono text-muted-foreground sm:table-cell">
+                      {r.energy > 0
+                        ? (HC_ANGSTROM / r.energy).toFixed(4)
+                        : "\u2014"}
+                    </td>
+                    <td className="hidden px-3 py-1.5 font-mono sm:table-cell">
+                      {r.fluorescenceYield.toFixed(4)}
+                    </td>
+                    <td className="hidden px-3 py-1.5 font-mono sm:table-cell">
+                      {r.jumpRatio.toFixed(4)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

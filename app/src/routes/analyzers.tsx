@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useWasm } from "~/hooks/useWasm";
 import {
   all_elements,
@@ -8,6 +8,9 @@ import {
   xray_edge_energy,
 } from "~/lib/wasm-api";
 import type { ElementData } from "~/components/periodic-table/types";
+import { LoadingState } from "~/components/ui/LoadingState";
+import { PageHeader } from "~/components/ui/PageHeader";
+import { EmptyState } from "~/components/ui/EmptyState";
 
 export const Route = createFileRoute("/analyzers")({
   component: AnalyzersPage,
@@ -88,7 +91,7 @@ function AnalyzersPage() {
   }, [ready, element]);
 
   // Auto-select best line when element changes — prefer Ka1 for analyzer use
-  useMemo(() => {
+  useEffect(() => {
     if (emissionLines.length > 0 && !selectedLine) {
       const ka1 = emissionLines.find((l) => l.label === "Ka1");
       const ka2 = emissionLines.find((l) => l.label === "Ka2");
@@ -164,21 +167,15 @@ function AnalyzersPage() {
   }, [ready, element]);
 
   if (!ready) {
-    return (
-      <div className="flex items-center gap-2 text-muted-foreground">
-        <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-        Loading X-ray database...
-      </div>
-    );
+    return <LoadingState />;
   }
 
   return (
     <div>
-      <h1 className="mb-4 text-xl font-bold md:text-2xl">Analyzer Crystals</h1>
-      <p className="mb-6 text-muted-foreground">
-        Find suitable analyzer crystal reflections for a given emission line.
-        Ideal for RIXS and emission spectroscopy.
-      </p>
+      <PageHeader
+        title="Analyzer Crystals"
+        description="Find suitable analyzer crystal reflections for a given emission line. Ideal for RIXS and emission spectroscopy."
+      />
 
       <div className="mb-6 grid gap-6 grid-cols-1 lg:grid-cols-[350px_1fr]">
         {/* Controls */}
@@ -336,11 +333,13 @@ function AnalyzersPage() {
               </table>
             </div>
           ) : (
-            <div className="rounded-lg border border-border/50 bg-card/50 p-8 text-center text-sm text-muted-foreground">
-              {lineEnergy > 0
-                ? "No reflections found in the specified angle range."
-                : "Select an element and emission line to find matching analyzers."}
-            </div>
+            <EmptyState
+              message={
+                lineEnergy > 0
+                  ? "No reflections found in the specified angle range."
+                  : "Select an element and emission line to find matching analyzers."
+              }
+            />
           )}
         </div>
       </div>

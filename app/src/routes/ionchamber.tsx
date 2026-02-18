@@ -7,7 +7,17 @@ import {
   compton_energies,
   material_mu,
 } from "~/lib/wasm-api";
+import { errorState, type CalculationState, readyState } from "~/lib/ui-state";
+import {
+  rebalanceForAddedGas,
+  removeGasAndRedistribute,
+  updateGasFractionBalanced,
+  type GasEntry,
+} from "~/lib/ionchamber-mix";
 import { downloadCsv } from "~/lib/csv-export";
+import { LoadingState } from "~/components/ui/LoadingState";
+import { ErrorBanner } from "~/components/ui/ErrorBanner";
+import { PageHeader } from "~/components/ui/PageHeader";
 
 export const Route = createFileRoute("/ionchamber")({
   component: IonChamberPage,
@@ -34,15 +44,11 @@ const ABSORPTION_TARGETS = [
   { label: "90%", value: 90 },
 ];
 
-interface GasEntry {
-  name: string;
-  fraction: number;
-}
-
 function IonChamberPage() {
   const ready = useWasm();
 
   const [gases, setGases] = useState<GasEntry[]>([
+    { name: "He", fraction: 0 },
     { name: "N2", fraction: 1.0 },
   ]);
   const [energy, setEnergy] = useState(10000);
@@ -52,68 +58,29 @@ function IonChamberPage() {
   const [sensitivity, setSensitivity] = useState(1e-6);
   const [withCompton, setWithCompton] = useState(true);
   const [bothCarriers, setBothCarriers] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const addGas = () => {
     const used = new Set(gases.map((g) => g.name));
     const next = GASES.find((g) => !used.has(g));
     if (!next) return;
-    // Split 10% from existing gases proportionally
-    const newFraction = 0.1;
-    const scale = gases.length > 0 ? (1 - newFraction) / Math.max(totalFraction, 0.001) : 1;
-    setGases([
-      ...gases.map((g) => ({ ...g, fraction: Math.max(0, g.fraction * scale) })),
-      { name: next, fraction: newFraction },
-    ]);
+    setGases((prev) => rebalanceForAddedGas(prev, next, 0.1));
   };
 
   const removeGas = (idx: number) => {
-    const removed = gases[idx];
-    const remaining = gases.filter((_, i) => i !== idx);
-    if (remaining.length === 0) return;
-    // Distribute removed fraction proportionally
-    const remSum = remaining.reduce((s, g) => s + g.fraction, 0);
-    if (remSum > 0) {
-      const scale = (remSum + removed.fraction) / remSum;
-      setGases(remaining.map((g) => ({ ...g, fraction: g.fraction * scale })));
-    } else {
-      remaining[0].fraction = 1.0;
-      setGases(remaining);
-    }
+    setGases((prev) => removeGasAndRedistribute(prev, idx));
   };
 
   const updateGas = useCallback(
     (idx: number, field: "name" | "fraction", val: string | number) => {
       setGases((prev) => {
-        const newGases = prev.map((g, i) =>
-          i === idx
-            ? {
-                ...g,
-                [field]:
-                  field === "fraction"
-                    ? typeof val === "number"
-                      ? val
-                      : parseFloat(val) || 0
-                    : val,
-              }
-            : g,
-        );
-        // Auto-balance: adjust other gases proportionally to keep sum = 1.0
-        if (field === "fraction" && newGases.length > 1) {
-          const newVal = typeof val === "number" ? val : parseFloat(val as string) || 0;
-          const clampedVal = Math.min(1, Math.max(0, newVal));
-          const remaining = 1.0 - clampedVal;
-          const othersSum = prev.reduce((s, g, i) => s + (i === idx ? 0 : g.fraction), 0);
-          if (othersSum > 0) {
-            const scale = remaining / othersSum;
-            return newGases.map((g, i) =>
-              i === idx
-                ? { ...g, fraction: clampedVal }
-                : { ...g, fraction: Math.max(0, prev[i].fraction * scale) },
-            );
-          }
+        if (field === "name") {
+          return prev.map((gas, i) =>
+            i === idx ? { ...gas, name: String(val) } : gas,
+          );
         }
-        return newGases;
+        const numericVal =
+          typeof val === "number" ? val : Number.parseFloat(val) || 0;
+        return updateGasFractionBalanced(prev, idx, numericVal);
       });
     },
     [],
@@ -125,15 +92,27 @@ function IonChamberPage() {
   // Effective length scaled by pressure
   const effectiveLength = length * (pressure / 760);
 
-  const results = useMemo(() => {
-    if (!ready || gases.length === 0) return null;
-    setError(null);
+  const resultState = useMemo<
+    CalculationState<{
+      incident: number;
+      transmitted: number;
+      photo: number;
+      incoherent: number;
+      coherent: number;
+      absorption: number;
+    }>
+  >(() => {
+    if (!ready) return { status: "idle", data: null, error: null };
+    if (!gases.length) return errorState("Add at least one gas to the chamber");
+    if (!(energy > 0)) return errorState("Energy must be greater than zero");
+    if (!(effectiveLength > 0)) return errorState("Effective length must be greater than zero");
+    if (!(sensitivity > 0)) return errorState("Sensitivity must be greater than zero");
 
     try {
       const gasMixtures = gases
         .filter((g) => g.fraction > 0)
         .map((g) => ({ name: g.name, fraction: g.fraction }));
-      if (gasMixtures.length === 0) return null;
+      if (!gasMixtures.length) return errorState("Set at least one gas fraction above zero");
 
       const flux = ionchamber_fluxes(
         gasMixtures,
@@ -156,10 +135,9 @@ function IonChamberPage() {
           ? ((flux.incident - flux.transmitted) / flux.incident) * 100
           : 0;
 
-      return { ...flux, absorption };
-    } catch (e: any) {
-      setError(e.message ?? String(e));
-      return null;
+      return readyState({ ...flux, absorption });
+    } catch (e: unknown) {
+      return errorState(e instanceof Error ? e.message : String(e));
     }
   }, [
     ready,
@@ -233,12 +211,7 @@ function IonChamberPage() {
   }, [ready]);
 
   if (!ready) {
-    return (
-      <div className="flex items-center gap-2 text-muted-foreground">
-        <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-        Loading X-ray database...
-      </div>
-    );
+    return <LoadingState />;
   }
 
   const GAS_COLORS: Record<string, string> = {
@@ -250,12 +223,14 @@ function IonChamberPage() {
     Xe: "#facc15", // yellow-400
   };
 
+  const result = resultState.data;
+
   return (
     <div>
-      <h1 className="mb-4 text-xl font-bold md:text-2xl">Ion Chamber</h1>
-      <p className="mb-6 text-muted-foreground">
-        Calculate incident and transmitted X-ray flux from ion chamber readings.
-      </p>
+      <PageHeader
+        title="Ion Chamber"
+        description="Calculate incident and transmitted X-ray flux from ion chamber readings."
+      />
 
       <div className="mb-6 grid gap-6 grid-cols-1 lg:grid-cols-[400px_1fr]">
         {/* Controls */}
@@ -303,7 +278,7 @@ function IonChamberPage() {
                       onChange={(e) => updateGas(i, "fraction", e.target.value)}
                       className="w-20 rounded-md border border-input bg-background px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring"
                     />
-                    {gases.length > 1 && (
+                    {gases.length > 2 && (
                       <button
                         type="button"
                         onClick={() => removeGas(i)}
@@ -514,12 +489,12 @@ function IonChamberPage() {
             </label>
           </div>
 
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {resultState.error && <ErrorBanner message={resultState.error} />}
         </div>
 
         {/* Results */}
         <div className="order-1 space-y-4 lg:order-none">
-          {results && (
+          {result && (
             <div className="rounded-lg border border-border bg-card p-4">
               <div className="mb-3 flex items-center justify-between">
                 <h2 className="text-lg font-semibold">Flux Results</h2>
@@ -532,28 +507,28 @@ function IonChamberPage() {
                       [
                         [
                           "Incident",
-                          results.incident.toExponential(4),
+                          result.incident.toExponential(4),
                           "photons/s",
                         ],
                         [
                           "Transmitted",
-                          results.transmitted.toExponential(4),
+                          result.transmitted.toExponential(4),
                           "photons/s",
                         ],
-                        ["Absorption", results.absorption.toFixed(2), "%"],
+                        ["Absorption", result.absorption.toFixed(2), "%"],
                         [
                           "Photoelectric",
-                          results.photo.toExponential(4),
+                          result.photo.toExponential(4),
                           "photons/s",
                         ],
                         [
                           "Incoherent",
-                          results.incoherent.toExponential(4),
+                          result.incoherent.toExponential(4),
                           "photons/s",
                         ],
                         [
                           "Coherent",
-                          results.coherent.toExponential(4),
+                          result.coherent.toExponential(4),
                           "photons/s",
                         ],
                       ],
@@ -567,31 +542,31 @@ function IonChamberPage() {
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <ResultCard
                   label="Incident flux"
-                  value={fmtFlux(results.incident)}
+                  value={fmtFlux(result.incident)}
                   unit="photons/s"
                 />
                 <ResultCard
                   label="Transmitted flux"
-                  value={fmtFlux(results.transmitted)}
+                  value={fmtFlux(result.transmitted)}
                   unit="photons/s"
                 />
                 <ResultCard
                   label="Absorption"
-                  value={`${results.absorption.toFixed(2)}%`}
+                  value={`${result.absorption.toFixed(2)}%`}
                 />
                 <ResultCard
                   label="Photoelectric"
-                  value={fmtFlux(results.photo)}
+                  value={fmtFlux(result.photo)}
                   unit="photons/s"
                 />
                 <ResultCard
                   label="Incoherent"
-                  value={fmtFlux(results.incoherent)}
+                  value={fmtFlux(result.incoherent)}
                   unit="photons/s"
                 />
                 <ResultCard
                   label="Coherent"
-                  value={fmtFlux(results.coherent)}
+                  value={fmtFlux(result.coherent)}
                   unit="photons/s"
                 />
               </div>

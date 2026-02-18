@@ -3,9 +3,14 @@ import { useState, useMemo, useCallback } from "react";
 import { useWasm } from "~/hooks/useWasm";
 import { f1_chantler, f2_chantler } from "~/lib/wasm-api";
 import { energyRange } from "~/lib/constants";
+import { errorState, type CalculationState, readyState } from "~/lib/ui-state";
+import { validateRange } from "~/lib/inputs";
 import { ScientificPlot } from "~/components/plot/ScientificPlot";
 import type { PlotTrace } from "~/components/plot/ScientificPlot";
 import { EnergyRangeInput } from "~/components/energy-range/EnergyRangeInput";
+import { LoadingState } from "~/components/ui/LoadingState";
+import { ErrorBanner } from "~/components/ui/ErrorBanner";
+import { PageHeader } from "~/components/ui/PageHeader";
 
 export const Route = createFileRoute("/scattering")({
   component: ScatteringPage,
@@ -19,7 +24,6 @@ function ScatteringPage() {
   const [eEnd, setEEnd] = useState(30000);
   const [eStep, setEStep] = useState(10);
   const [overlayElements, setOverlayElements] = useState<string[]>([]);
-  const [error, setError] = useState<string | null>(null);
 
   const addOverlay = useCallback(() => {
     if (element.trim() && !overlayElements.includes(element.trim())) {
@@ -36,56 +40,59 @@ function ScatteringPage() {
     [element, overlayElements],
   );
 
-  const f1Traces: PlotTrace[] = useMemo(() => {
-    if (!ready) return [];
-    setError(null);
-    const energies = energyRange(eStart, eEnd, eStep);
-    const energyArr = Array.from(energies);
-    const result: PlotTrace[] = [];
+  const traceState = useMemo<
+    CalculationState<{ f1Traces: PlotTrace[]; f2Traces: PlotTrace[] }>
+  >(() => {
+    if (!ready) return { status: "idle", data: null, error: null };
+    if (!element.trim()) return errorState("Enter an element symbol");
 
-    for (const el of allElements) {
-      try {
-        const f1 = f1_chantler(el, energies);
-        result.push({ x: energyArr, y: Array.from(f1), name: `${el} f'` });
-      } catch (e: any) {
-        if (el === element.trim()) setError(e.message ?? String(e));
+    const range = validateRange(eStart, eEnd, eStep, 30000);
+    if (!range.valid) return errorState(range.error ?? "Invalid energy range");
+
+    try {
+      const energies = energyRange(eStart, eEnd, eStep);
+      const energyArr = Array.from(energies);
+      const f1Traces: PlotTrace[] = [];
+      const f2Traces: PlotTrace[] = [];
+      let primaryError: string | null = null;
+
+      for (const el of allElements) {
+        try {
+          const f1 = f1_chantler(el, energies);
+          f1Traces.push({ x: energyArr, y: Array.from(f1), name: `${el} f'` });
+        } catch (e: unknown) {
+          if (el === element.trim()) {
+            primaryError = e instanceof Error ? e.message : String(e);
+          }
+        }
       }
+
+      for (const el of allElements) {
+        try {
+          const f2 = f2_chantler(el, energies);
+          f2Traces.push({ x: energyArr, y: Array.from(f2), name: `${el} f"` });
+        } catch {
+          // Ignore invalid overlays while keeping valid traces.
+        }
+      }
+
+      if (primaryError) return errorState(primaryError);
+      return readyState({ f1Traces, f2Traces });
+    } catch (e: unknown) {
+      return errorState(e instanceof Error ? e.message : String(e));
     }
-    return result;
   }, [ready, allElements, eStart, eEnd, eStep, element]);
 
-  const f2Traces: PlotTrace[] = useMemo(() => {
-    if (!ready) return [];
-    const energies = energyRange(eStart, eEnd, eStep);
-    const energyArr = Array.from(energies);
-    const result: PlotTrace[] = [];
-
-    for (const el of allElements) {
-      try {
-        const f2 = f2_chantler(el, energies);
-        result.push({ x: energyArr, y: Array.from(f2), name: `${el} f"` });
-      } catch {
-        // skip
-      }
-    }
-    return result;
-  }, [ready, allElements, eStart, eEnd, eStep]);
-
   if (!ready) {
-    return (
-      <div className="flex items-center gap-2 text-muted-foreground">
-        <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-        Loading X-ray database...
-      </div>
-    );
+    return <LoadingState />;
   }
 
   return (
     <div>
-      <h1 className="mb-4 text-xl font-bold md:text-2xl">Scattering Factors</h1>
-      <p className="mb-6 text-muted-foreground">
-        Anomalous scattering factors f' and f" from Chantler tables.
-      </p>
+      <PageHeader
+        title="Scattering Factors"
+        description={`Anomalous scattering factors f' and f" from Chantler tables.`}
+      />
 
       <div className="mb-6 grid gap-6 grid-cols-1 lg:grid-cols-[300px_1fr]">
         {/* Controls */}
@@ -135,13 +142,13 @@ function ScatteringPage() {
             ))}
           </div>
 
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {traceState.error && <ErrorBanner message={traceState.error} />}
         </div>
 
         {/* Plots */}
         <div className="order-1 space-y-4 lg:order-none">
           <ScientificPlot
-            traces={f1Traces}
+            traces={traceState.data?.f1Traces ?? []}
             xTitle="Energy (eV)"
             yTitle="f' (e⁻)"
             title="f' — Real part (anomalous scattering)"
@@ -149,7 +156,7 @@ function ScatteringPage() {
             showLogToggle={false}
           />
           <ScientificPlot
-            traces={f2Traces}
+            traces={traceState.data?.f2Traces ?? []}
             xTitle="Energy (eV)"
             yTitle='f" (e⁻)'
             title='f" — Imaginary part (anomalous scattering)'

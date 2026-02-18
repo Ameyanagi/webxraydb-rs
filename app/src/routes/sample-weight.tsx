@@ -6,12 +6,17 @@ import {
   xray_edge_energy,
   parse_formula,
 } from "~/lib/wasm-api";
+import { errorState, type CalculationState, readyState } from "~/lib/ui-state";
+import { computeSampleWeightMix } from "~/lib/sample-weight-calc";
 import { ScientificPlot } from "~/components/plot/ScientificPlot";
 import type {
   PlotTrace,
   PlotAnnotation,
 } from "~/components/plot/ScientificPlot";
 import { FormulaInput } from "~/components/formula-input/FormulaInput";
+import { LoadingState } from "~/components/ui/LoadingState";
+import { ErrorBanner } from "~/components/ui/ErrorBanner";
+import { PageHeader } from "~/components/ui/PageHeader";
 
 export const Route = createFileRoute("/sample-weight")({
   component: SampleWeightPage,
@@ -39,7 +44,6 @@ function SampleWeightPage() {
   const [angle, setAngle] = useState(45); // degrees
   const [targetEdgeStep, setTargetEdgeStep] = useState(1.0);
   const [energyPadding, setEnergyPadding] = useState(200); // eV below/above edge
-  const [error, setError] = useState<string | null>(null);
 
   // Derived area in cm²
   const area = useMemo(() => {
@@ -118,50 +122,61 @@ function SampleWeightPage() {
   );
 
   // Core calculation: sample and diluent weights
-  const calculation = useMemo(() => {
-    if (!ready || !edgeEnergy || !sampleFormula.trim() || !diluentFormula.trim())
-      return null;
-    setError(null);
+  const calculationState = useMemo<
+    CalculationState<{
+      sampleMassMg: number;
+      diluentMassMg: number;
+      sampleFraction: number;
+      achievedEdgeStep: number;
+      sampleEdgeStepPerG: number;
+      diluentEdgeStepPerG: number;
+      absorptionBelow: number;
+      absorptionAbove: number;
+      transmissionBelow: number;
+      transmissionAbove: number;
+    }>
+  >(() => {
+    if (!ready) return { status: "idle", data: null, error: null };
+    if (!edgeEnergy || !sampleFormula.trim() || !diluentFormula.trim()) {
+      return errorState("Set sample/diluent formulas and select a valid absorption edge");
+    }
+    if (totalMass <= 0) return errorState("Total mass must be greater than zero");
+    if (targetEdgeStep <= 0) return errorState("Target edge step must be greater than zero");
+    if (area <= 0) return errorState("Effective area must be greater than zero");
 
     try {
-      const eStep = 10; // eV offset for edge step calculation
+      const eStep = 10;
       const eBelow = new Float64Array([edgeEnergy - eStep]);
       const eAbove = new Float64Array([edgeEnergy + eStep]);
 
-      // Mass attenuation coefficients (cm²/g)
       const sampleMuBelow = massMu(sampleFormula, eBelow);
       const sampleMuAbove = massMu(sampleFormula, eAbove);
       const diluentMuBelow = massMu(diluentFormula, eBelow);
       const diluentMuAbove = massMu(diluentFormula, eAbove);
 
-      if (!sampleMuBelow || !sampleMuAbove || !diluentMuBelow || !diluentMuAbove)
-        return null;
+      if (!sampleMuBelow || !sampleMuAbove || !diluentMuBelow || !diluentMuAbove) {
+        return errorState("Could not calculate attenuation coefficients");
+      }
 
-      // Edge step per unit areal density (cm²/g)
       const sampleEdgeStep = sampleMuAbove[0] - sampleMuBelow[0];
       const diluentEdgeStep = diluentMuAbove[0] - diluentMuBelow[0];
 
       if (Math.abs(sampleEdgeStep - diluentEdgeStep) < 1e-10) {
-        setError("Sample and diluent have identical edge steps");
-        return null;
+        return errorState("Sample and diluent have identical edge steps");
       }
 
-      const totalMassG = totalMass / 1000; // mg -> g
+      const mix = computeSampleWeightMix({
+        sampleEdgeStep,
+        diluentEdgeStep,
+        totalMassMg: totalMass,
+        areaCm2: area,
+        targetEdgeStep,
+      });
+      if (!mix) return errorState("Could not compute sample/diluent masses");
 
-      // target = sampleEdgeStep × (m_s / A) + diluentEdgeStep × (m_d / A)
-      // m_s + m_d = M
-      // => m_s = (target × A - diluentEdgeStep × M) / (sampleEdgeStep - diluentEdgeStep)
-      const sampleMassG =
-        (targetEdgeStep * area - diluentEdgeStep * totalMassG) /
-        (sampleEdgeStep - diluentEdgeStep);
-      const diluentMassG = totalMassG - sampleMassG;
+      const sampleMassG = mix.sampleMassMg / 1000;
+      const diluentMassG = mix.diluentMassMg / 1000;
 
-      // For display: calculate the achieved edge step with these masses
-      const achievedEdgeStep =
-        sampleEdgeStep * (sampleMassG / area) +
-        diluentEdgeStep * (diluentMassG / area);
-
-      // Total absorption at the edge (for context)
       const totalAbsBelow =
         sampleMuBelow[0] * (sampleMassG / area) +
         diluentMuBelow[0] * (diluentMassG / area);
@@ -169,21 +184,20 @@ function SampleWeightPage() {
         sampleMuAbove[0] * (sampleMassG / area) +
         diluentMuAbove[0] * (diluentMassG / area);
 
-      return {
-        sampleMassMg: sampleMassG * 1000,
-        diluentMassMg: diluentMassG * 1000,
-        sampleFraction: (sampleMassG / totalMassG) * 100,
-        achievedEdgeStep,
+      return readyState({
+        sampleMassMg: mix.sampleMassMg,
+        diluentMassMg: mix.diluentMassMg,
+        sampleFraction: mix.sampleFractionPct,
+        achievedEdgeStep: mix.achievedEdgeStep,
         sampleEdgeStepPerG: sampleEdgeStep,
         diluentEdgeStepPerG: diluentEdgeStep,
         absorptionBelow: totalAbsBelow,
         absorptionAbove: totalAbsAbove,
         transmissionBelow: Math.exp(-totalAbsBelow),
         transmissionAbove: Math.exp(-totalAbsAbove),
-      };
-    } catch (e: any) {
-      setError(e.message ?? String(e));
-      return null;
+      });
+    } catch (e: unknown) {
+      return errorState(e instanceof Error ? e.message : String(e));
     }
   }, [
     ready,
@@ -195,6 +209,8 @@ function SampleWeightPage() {
     targetEdgeStep,
     massMu,
   ]);
+
+  const calculation = calculationState.data;
 
   // Absorption spectrum plot
   const traces: PlotTrace[] = useMemo(() => {
@@ -265,21 +281,15 @@ function SampleWeightPage() {
   }, [edgeEnergy, atom, edge]);
 
   if (!ready) {
-    return (
-      <div className="flex items-center gap-2 text-muted-foreground">
-        <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-        Loading X-ray database...
-      </div>
-    );
+    return <LoadingState />;
   }
 
   return (
     <div>
-      <h1 className="mb-4 text-xl font-bold md:text-2xl">Sample Weight Calculator</h1>
-      <p className="mb-6 text-muted-foreground">
-        Calculate sample and diluent weights for XAS transmission pellet
-        preparation.
-      </p>
+      <PageHeader
+        title="Sample Weight Calculator"
+        description="Calculate sample and diluent weights for XAS transmission pellet preparation."
+      />
 
       <div className="mb-6 grid gap-6 grid-cols-1 lg:grid-cols-[350px_1fr]">
         {/* Controls */}
@@ -431,7 +441,7 @@ function SampleWeightPage() {
             />
           </div>
 
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {calculationState.error && <ErrorBanner message={calculationState.error} />}
 
           {/* Results */}
           {calculation && (

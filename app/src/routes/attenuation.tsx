@@ -3,11 +3,16 @@ import { useState, useMemo, useCallback } from "react";
 import { useWasm } from "~/hooks/useWasm";
 import { material_mu } from "~/lib/wasm-api";
 import { energyRange } from "~/lib/constants";
+import { validateRange } from "~/lib/inputs";
+import { errorState, type CalculationState, readyState } from "~/lib/ui-state";
 import { ScientificPlot } from "~/components/plot/ScientificPlot";
 import type { PlotTrace } from "~/components/plot/ScientificPlot";
 import { FormulaInput } from "~/components/formula-input/FormulaInput";
 import { EnergyRangeInput } from "~/components/energy-range/EnergyRangeInput";
 import { MaterialPicker } from "~/components/material-picker/MaterialPicker";
+import { LoadingState } from "~/components/ui/LoadingState";
+import { ErrorBanner } from "~/components/ui/ErrorBanner";
+import { PageHeader } from "~/components/ui/PageHeader";
 
 export const Route = createFileRoute("/attenuation")({
   component: AttenuationPage,
@@ -25,6 +30,7 @@ const CROSS_SECTION_KINDS = [
   { value: "photo", label: "Photoelectric" },
   { value: "coherent", label: "Coherent" },
   { value: "incoherent", label: "Incoherent" },
+  { value: "all", label: "All Contributions" },
 ];
 
 let nextId = 1;
@@ -39,7 +45,6 @@ function AttenuationPage() {
   const [eStep, setEStep] = useState(50);
   const [kind, setKind] = useState("total");
   const [materials, setMaterials] = useState<MaterialLayer[]>([]);
-  const [error, setError] = useState<string | null>(null);
 
   const handleMaterialSelect = useCallback(
     (f: string, d: number) => {
@@ -66,62 +71,74 @@ function AttenuationPage() {
     setMaterials((prev) => prev.filter((m) => m.id !== id));
   }, []);
 
-  const traces: PlotTrace[] = useMemo(() => {
-    if (!ready) return [];
-    setError(null);
+  const traceState = useMemo<CalculationState<PlotTrace[]>>(() => {
+    if (!ready) return { status: "idle", data: null, error: null };
+    if (!formula.trim()) return errorState("Enter a chemical formula to calculate attenuation");
+    if (!(density > 0)) return errorState("Density must be greater than zero");
 
-    const energies = energyRange(eStart, eEnd, eStep);
-    const energyArr = Array.from(energies);
-    const result: PlotTrace[] = [];
+    const range = validateRange(eStart, eEnd, eStep, 25000);
+    if (!range.valid) return errorState(range.error ?? "Invalid energy range");
 
-    // Current formula (always shown)
-    if (formula.trim()) {
-      try {
+    try {
+      const energies = energyRange(eStart, eEnd, eStep);
+      const energyArr = Array.from(energies);
+      const result: PlotTrace[] = [];
+
+      if (kind === "all") {
+        const contributions = [
+          { kind: "total", label: "Total", dash: undefined as undefined, color: undefined as string | undefined },
+          { kind: "photo", label: "Photoelectric", dash: "dash" as const, color: "#f97316" },
+          { kind: "coherent", label: "Coherent", dash: "dot" as const, color: "#22c55e" },
+          { kind: "incoherent", label: "Incoherent", dash: "dashdot" as const, color: "#a855f7" },
+        ];
+        for (const c of contributions) {
+          const mu = material_mu(formula.trim(), density, energies, c.kind);
+          result.push({
+            x: energyArr,
+            y: Array.from(mu),
+            name: `${formula} — ${c.label}`,
+            line: c.dash ? { dash: c.dash, width: 2, color: c.color } : undefined,
+          });
+        }
+      } else {
         const mu = material_mu(formula.trim(), density, energies, kind);
         result.push({
           x: energyArr,
           y: Array.from(mu),
           name: `${formula} (ρ=${density})`,
         });
-      } catch (e: any) {
-        setError(e.message ?? String(e));
-      }
-    }
 
-    // Additional materials for overlay
-    for (const mat of materials) {
-      try {
-        const mu = material_mu(mat.formula, mat.density, energies, kind);
-        result.push({
-          x: energyArr,
-          y: Array.from(mu),
-          name: mat.label,
-          line: { dash: "dot", width: 2 },
-        });
-      } catch {
-        // skip invalid overlay materials
+        for (const mat of materials) {
+          try {
+            const overlayMu = material_mu(mat.formula, mat.density, energies, kind);
+            result.push({
+              x: energyArr,
+              y: Array.from(overlayMu),
+              name: mat.label,
+              line: { dash: "dot", width: 2 },
+            });
+          } catch {
+            // Ignore invalid overlay material while preserving primary trace.
+          }
+        }
       }
-    }
 
-    return result;
+      return readyState(result);
+    } catch (e: unknown) {
+      return errorState(e instanceof Error ? e.message : String(e));
+    }
   }, [ready, formula, density, eStart, eEnd, eStep, kind, materials]);
 
   if (!ready) {
-    return (
-      <div className="flex items-center gap-2 text-muted-foreground">
-        <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-        Loading X-ray database...
-      </div>
-    );
+    return <LoadingState />;
   }
 
   return (
     <div>
-      <h1 className="mb-4 text-xl font-bold md:text-2xl">X-ray Attenuation</h1>
-      <p className="mb-6 text-muted-foreground">
-        Calculate material linear attenuation coefficient μ (1/cm) as a
-        function of X-ray energy.
-      </p>
+      <PageHeader
+        title="X-ray Attenuation"
+        description="Calculate material linear attenuation coefficient μ (1/cm) as a function of X-ray energy."
+      />
 
       <div className="mb-6 grid gap-6 grid-cols-1 lg:grid-cols-[350px_1fr]">
         {/* Controls */}
@@ -195,18 +212,16 @@ function AttenuationPage() {
             ))}
           </div>
 
-          {error && (
-            <p className="text-sm text-destructive">{error}</p>
-          )}
+          {traceState.error && <ErrorBanner message={traceState.error} />}
         </div>
 
         {/* Plot */}
         <div className="order-1 lg:order-none">
         <ScientificPlot
-          traces={traces}
+          traces={traceState.data ?? []}
           xTitle="Energy (eV)"
           yTitle="μ (1/cm)"
-          title={`Attenuation — ${kind}`}
+          title={`Attenuation — ${kind === "all" ? "All Contributions" : kind}`}
           defaultLogY
         />
         </div>

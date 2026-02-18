@@ -14,6 +14,8 @@ import type {
   PlotTrace,
   PlotAnnotation,
 } from "~/components/plot/ScientificPlot";
+import { LoadingState } from "~/components/ui/LoadingState";
+import { EmptyState } from "~/components/ui/EmptyState";
 
 export const Route = createFileRoute("/element/$z")({
   component: ElementDetailPage,
@@ -216,18 +218,13 @@ function ElementDetailPage() {
   }, [ready, data]);
 
   if (!ready) {
-    return (
-      <div className="flex items-center gap-2 text-muted-foreground">
-        <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-        Loading...
-      </div>
-    );
+    return <LoadingState message="Loading element data..." />;
   }
 
   if (!data) {
     return (
       <div>
-        <p className="text-muted-foreground">Element not found.</p>
+        <EmptyState message="Element not found." />
         <Link to="/" className="text-primary hover:underline">
           &larr; Back to periodic table
         </Link>

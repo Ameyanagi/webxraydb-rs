@@ -1,5 +1,5 @@
 import { useState, useMemo, lazy, Suspense } from "react";
-import type { Data, Layout, Config } from "plotly.js";
+import type { Data, Layout, Config, ScatterLine } from "plotly.js";
 import { useIsMobile } from "~/hooks/useIsMobile";
 
 const Plot = lazy(() => import("react-plotly.js"));
@@ -9,8 +9,8 @@ export interface PlotTrace {
   y: number[];
   name: string;
   mode?: "lines" | "markers" | "lines+markers";
-  line?: { dash?: string; width?: number; color?: string };
-  yaxis?: string;
+  line?: { dash?: ScatterLine["dash"]; width?: number; color?: string };
+  yaxis?: "y" | "y2";
 }
 
 export interface PlotAnnotation {
@@ -138,7 +138,7 @@ export function ScientificPlot({
         "select2d",
         "lasso2d",
         "autoScale2d",
-      ] as any[],
+      ],
       toImageButtonOptions: {
         format: "svg",
         filename: title ?? "plot",

@@ -9,8 +9,12 @@ import {
   xray_edge_energy,
   mu_elam,
 } from "~/lib/wasm-api";
+import { errorState, type CalculationState, readyState } from "~/lib/ui-state";
 import { FormulaInput } from "~/components/formula-input/FormulaInput";
 import { MaterialPicker } from "~/components/material-picker/MaterialPicker";
+import { LoadingState } from "~/components/ui/LoadingState";
+import { ErrorBanner } from "~/components/ui/ErrorBanner";
+import { PageHeader } from "~/components/ui/PageHeader";
 import { downloadCsv } from "~/lib/csv-export";
 
 export const Route = createFileRoute("/formulas")({
@@ -29,6 +33,21 @@ interface ComponentRow {
   cm2PerG: number;
 }
 
+interface FormulaResults {
+  muTotal: number;
+  muPhoto: number;
+  absorptionLength: number;
+  delta: number;
+  beta: number;
+  attenuationLengthCm: number;
+  totalWeight: number;
+  rows: ComponentRow[];
+  unitEdgeStep: number | null;
+  nearestEdge: string | null;
+  transmission: number;
+  sampleMass: number;
+}
+
 function FormulasPage() {
   const ready = useWasm();
 
@@ -37,16 +56,19 @@ function FormulasPage() {
   const [energy, setEnergy] = useState(7112);
   const [thickness, setThickness] = useState(0.1);
   const [area, setArea] = useState(1.0);
-  const [error, setError] = useState<string | null>(null);
 
   const handleMaterialSelect = (f: string, d: number) => {
     setFormula(f);
     setDensity(d);
   };
 
-  const results = useMemo(() => {
-    if (!ready || !formula.trim()) return null;
-    setError(null);
+  const resultState = useMemo<CalculationState<FormulaResults>>(() => {
+    if (!ready) return { status: "idle", data: null, error: null };
+    if (!formula.trim()) return errorState("Enter a chemical formula");
+    if (!(density > 0)) return errorState("Density must be greater than zero");
+    if (!(energy > 0)) return errorState("Energy must be greater than zero");
+    if (thickness < 0) return errorState("Thickness cannot be negative");
+    if (area <= 0) return errorState("Area must be greater than zero");
 
     try {
       const energies = new Float64Array([energy]);
@@ -60,7 +82,6 @@ function FormulasPage() {
         count: number;
       }[];
 
-      // Calculate component contributions
       let totalWeight = 0;
       const compData: {
         symbol: string;
@@ -85,12 +106,11 @@ function FormulasPage() {
         try {
           const mu = material_mu(c.symbol, density, energies, "total");
           muEl = mu[0] * wf;
-          // Cross-section per element: barns/atom and cm²/g
           const muElem = mu_elam(c.symbol, energies, "total");
-          cm2PerG = muElem[0]; // mu_elam returns mass attenuation coefficient cm²/g
-          barnsPerAtom = (cm2PerG * c.mm) / AVOGADRO * 1e24; // convert to barns
+          cm2PerG = muElem[0];
+          barnsPerAtom = (cm2PerG * c.mm) / AVOGADRO * 1e24;
         } catch {
-          // skip
+          // keep partial row values
         }
         return {
           symbol: c.symbol,
@@ -105,8 +125,6 @@ function FormulasPage() {
 
       const absorptionLength = muTotal[0] > 0 ? 1.0 / muTotal[0] : Infinity;
 
-      // Unit edge step: calculate μ at energy ± 50 eV to estimate the edge step
-      // Only meaningful if energy is near an edge
       let unitEdgeStep: number | null = null;
       let nearestEdge: string | null = null;
       for (const c of components) {
@@ -114,7 +132,6 @@ function FormulasPage() {
           try {
             const edgeE = xray_edge_energy(c.symbol, edgeName) as number;
             if (Math.abs(edgeE - energy) < 100) {
-              // Compute edge step: Δμ = μ(E+50) - μ(E-50)
               const eAbove = new Float64Array([edgeE + 50]);
               const eBelow = new Float64Array([edgeE - 50]);
               const muAbove = material_mu(formula.trim(), density, eAbove, "total");
@@ -126,18 +143,15 @@ function FormulasPage() {
               }
             }
           } catch {
-            // skip
+            // skip invalid edge for this component
           }
         }
       }
 
-      // Transmission for given thickness
       const transmission = Math.exp(-muTotal[0] * thickness);
-
-      // Sample mass for 1 absorption length at given area
       const sampleMass = absorptionLength * area * density;
 
-      return {
+      return readyState({
         muTotal: muTotal[0],
         muPhoto: muPhoto[0],
         absorptionLength,
@@ -150,29 +164,24 @@ function FormulasPage() {
         nearestEdge,
         transmission,
         sampleMass,
-      };
-    } catch (e: any) {
-      setError(e.message ?? String(e));
-      return null;
+      });
+    } catch (e: unknown) {
+      return errorState(e instanceof Error ? e.message : String(e));
     }
   }, [ready, formula, density, energy, thickness, area]);
 
   if (!ready) {
-    return (
-      <div className="flex items-center gap-2 text-muted-foreground">
-        <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-        Loading X-ray database...
-      </div>
-    );
+    return <LoadingState />;
   }
+
+  const results = resultState.data;
 
   return (
     <div>
-      <h1 className="mb-4 text-xl font-bold md:text-2xl">Absorption Formulas</h1>
-      <p className="mb-6 text-muted-foreground">
-        Calculate absorption length, unit edge step, refractive index, and
-        elemental contributions for a given material and energy.
-      </p>
+      <PageHeader
+        title="Absorption Formulas"
+        description="Calculate absorption length, unit edge step, refractive index, and elemental contributions for a given material and energy."
+      />
 
       <div className="mb-6 grid gap-6 grid-cols-1 lg:grid-cols-[350px_1fr]">
         {/* Controls */}
@@ -235,7 +244,7 @@ function FormulasPage() {
             </div>
           </div>
 
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {resultState.error && <ErrorBanner message={resultState.error} />}
         </div>
 
         {/* Results */}

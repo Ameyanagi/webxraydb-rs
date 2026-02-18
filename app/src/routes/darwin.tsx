@@ -2,8 +2,12 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo } from "react";
 import { useWasm } from "~/hooks/useWasm";
 import { darwin_width } from "~/lib/wasm-api";
+import { errorState, type CalculationState, readyState } from "~/lib/ui-state";
 import { ScientificPlot } from "~/components/plot/ScientificPlot";
 import type { PlotTrace } from "~/components/plot/ScientificPlot";
+import { LoadingState } from "~/components/ui/LoadingState";
+import { ErrorBanner } from "~/components/ui/ErrorBanner";
+import { PageHeader } from "~/components/ui/PageHeader";
 
 export const Route = createFileRoute("/darwin")({
   component: DarwinWidthPage,
@@ -14,10 +18,16 @@ const CRYSTAL_PRESETS = [
   { crystal: "Si", h: 2, k: 2, l: 0, label: "Si(220)" },
   { crystal: "Si", h: 3, k: 1, l: 1, label: "Si(311)" },
   { crystal: "Si", h: 4, k: 0, l: 0, label: "Si(400)" },
+  { crystal: "Si", h: 3, k: 3, l: 1, label: "Si(331)" },
+  { crystal: "Si", h: 5, k: 1, l: 1, label: "Si(511)" },
+  { crystal: "Si", h: 3, k: 3, l: 3, label: "Si(333)" },
+  { crystal: "Si", h: 4, k: 4, l: 0, label: "Si(440)" },
   { crystal: "Ge", h: 1, k: 1, l: 1, label: "Ge(111)" },
   { crystal: "Ge", h: 2, k: 2, l: 0, label: "Ge(220)" },
   { crystal: "Ge", h: 3, k: 1, l: 1, label: "Ge(311)" },
+  { crystal: "Ge", h: 4, k: 0, l: 0, label: "Ge(400)" },
   { crystal: "C", h: 1, k: 1, l: 1, label: "C(111)" },
+  { crystal: "C", h: 2, k: 2, l: 0, label: "C(220)" },
 ];
 
 function DarwinWidthPage() {
@@ -29,34 +39,60 @@ function DarwinWidthPage() {
   const [l, setL] = useState(1);
   const [energy, setEnergy] = useState(10000);
   const [polarization, setPolarization] = useState("s");
-  const [error, setError] = useState<string | null>(null);
 
-  const result = useMemo(() => {
-    if (!ready) return null;
-    setError(null);
+  const resultState = useMemo<
+    CalculationState<{
+      theta: number;
+      theta_offset: number;
+      theta_width: number;
+      theta_fwhm: number;
+      rocking_theta_fwhm: number;
+      energy_width: number;
+      energy_fwhm: number;
+      rocking_energy_fwhm: number;
+      zeta: number[];
+      dtheta: number[];
+      denergy: number[];
+      intensity: number[];
+      rocking_curve: number[];
+    }>
+  >(() => {
+    if (!ready) return { status: "idle", data: null, error: null };
+    if (!(energy > 0)) return errorState("Energy must be greater than zero");
+    if (h < 0 || k < 0 || l < 0) return errorState("h, k, l must be non-negative");
 
     try {
-      const dw = darwin_width(energy, crystal, h, k, l, polarization) as {
-        theta: number;
-        theta_offset: number;
-        theta_width: number;
-        theta_fwhm: number;
-        rocking_theta_fwhm: number;
-        energy_width: number;
-        energy_fwhm: number;
-        rocking_energy_fwhm: number;
-        zeta: number[];
-        dtheta: number[];
-        denergy: number[];
-        intensity: number[];
-        rocking_curve: number[];
-      } | null;
-      return dw;
-    } catch (e: any) {
-      setError(e.message ?? String(e));
-      return null;
+      const dw = darwin_width(energy, crystal, h, k, l, polarization) as
+        | {
+            theta: number;
+            theta_offset: number;
+            theta_width: number;
+            theta_fwhm: number;
+            rocking_theta_fwhm: number;
+            energy_width: number;
+            energy_fwhm: number;
+            rocking_energy_fwhm: number;
+            zeta: number[];
+            dtheta: number[];
+            denergy: number[];
+            intensity: number[];
+            rocking_curve: number[];
+          }
+        | null;
+      if (!dw) {
+        return {
+          status: "idle",
+          data: null,
+          error: null,
+        };
+      }
+      return readyState(dw);
+    } catch (e: unknown) {
+      return errorState(e instanceof Error ? e.message : String(e));
     }
   }, [ready, crystal, h, k, l, energy, polarization]);
+
+  const result = resultState.data;
 
   // Single-bounce reflectivity curve
   const singleBounceTraces: PlotTrace[] = useMemo(() => {
@@ -101,49 +137,67 @@ function DarwinWidthPage() {
   }, [result]);
 
   if (!ready) {
-    return (
-      <div className="flex items-center gap-2 text-muted-foreground">
-        <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-        Loading X-ray database...
-      </div>
-    );
+    return <LoadingState />;
   }
 
   return (
     <div>
-      <h1 className="mb-4 text-xl font-bold md:text-2xl">Darwin Width</h1>
-      <p className="mb-6 text-muted-foreground">
-        Calculate crystal monochromator Darwin widths, reflectivity curves, and
-        energy resolution.
-      </p>
+      <PageHeader
+        title="Darwin Width"
+        description="Calculate crystal monochromator Darwin widths, reflectivity curves, and energy resolution."
+      />
 
       <div className="mb-6 grid gap-6 grid-cols-1 lg:grid-cols-[350px_1fr]">
         {/* Controls */}
         <div className="order-2 space-y-4 lg:order-none">
-          {/* Crystal presets */}
+          {/* Crystal reflection dropdown */}
           <div>
             <label className="mb-1 block text-sm font-medium">
               Crystal Reflection
             </label>
-            <div className="mb-2 flex flex-wrap gap-1">
+            <select
+              value={
+                CRYSTAL_PRESETS.find(
+                  (p) =>
+                    p.crystal === crystal &&
+                    p.h === h &&
+                    p.k === k &&
+                    p.l === l,
+                )?.label ?? "custom"
+              }
+              onChange={(e) => {
+                const preset = CRYSTAL_PRESETS.find(
+                  (p) => p.label === e.target.value,
+                );
+                if (preset) {
+                  setCrystal(preset.crystal);
+                  setH(preset.h);
+                  setK(preset.k);
+                  setL(preset.l);
+                }
+              }}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            >
               {CRYSTAL_PRESETS.map((p) => (
-                <button
-                  key={p.label}
-                  type="button"
-                  onClick={() => {
-                    setCrystal(p.crystal);
-                    setH(p.h);
-                    setK(p.k);
-                    setL(p.l);
-                  }}
-                  className={`rounded px-2 py-1 text-xs font-medium ${crystal === p.crystal && h === p.h && k === p.k && l === p.l ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground hover:bg-secondary/80"}`}
-                >
+                <option key={p.label} value={p.label}>
                   {p.label}
-                </button>
+                </option>
               ))}
-            </div>
+              {!CRYSTAL_PRESETS.find(
+                (p) =>
+                  p.crystal === crystal &&
+                  p.h === h &&
+                  p.k === k &&
+                  p.l === l,
+              ) && (
+                <option value="custom">
+                  Custom — {crystal}({h}{k}{l})
+                </option>
+              )}
+            </select>
           </div>
 
+          {/* Custom crystal / Miller index inputs */}
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             <div>
               <label className="mb-1 block text-sm font-medium">Crystal</label>
@@ -217,7 +271,7 @@ function DarwinWidthPage() {
             </select>
           </div>
 
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {resultState.error && <ErrorBanner message={resultState.error} />}
 
           {/* Results table */}
           {result && (
@@ -260,7 +314,7 @@ function DarwinWidthPage() {
             </div>
           )}
 
-          {!result && !error && (
+          {!result && !resultState.error && (
             <div className="rounded-lg border border-border/50 bg-card/50 p-4 text-center text-sm text-muted-foreground">
               Bragg condition cannot be satisfied at this energy.
             </div>
