@@ -252,14 +252,14 @@ function IonChamberPage() {
 
   return (
     <div>
-      <h1 className="mb-4 text-2xl font-bold">Ion Chamber</h1>
+      <h1 className="mb-4 text-xl font-bold md:text-2xl">Ion Chamber</h1>
       <p className="mb-6 text-muted-foreground">
         Calculate incident and transmitted X-ray flux from ion chamber readings.
       </p>
 
-      <div className="mb-6 grid gap-6 lg:grid-cols-[400px_1fr]">
+      <div className="mb-6 grid gap-6 grid-cols-1 lg:grid-cols-[400px_1fr]">
         {/* Controls */}
-        <div className="space-y-4">
+        <div className="order-2 space-y-4 lg:order-none">
           {/* Gas mixture with sliders */}
           <div>
             <label className="mb-2 block text-sm font-medium">
@@ -518,7 +518,7 @@ function IonChamberPage() {
         </div>
 
         {/* Results */}
-        <div className="space-y-4">
+        <div className="order-1 space-y-4 lg:order-none">
           {results && (
             <div className="rounded-lg border border-border bg-card p-4">
               <div className="mb-3 flex items-center justify-between">

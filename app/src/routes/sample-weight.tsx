@@ -275,15 +275,15 @@ function SampleWeightPage() {
 
   return (
     <div>
-      <h1 className="mb-4 text-2xl font-bold">Sample Weight Calculator</h1>
+      <h1 className="mb-4 text-xl font-bold md:text-2xl">Sample Weight Calculator</h1>
       <p className="mb-6 text-muted-foreground">
         Calculate sample and diluent weights for XAS transmission pellet
         preparation.
       </p>
 
-      <div className="mb-6 grid gap-6 lg:grid-cols-[350px_1fr]">
+      <div className="mb-6 grid gap-6 grid-cols-1 lg:grid-cols-[350px_1fr]">
         {/* Controls */}
-        <div className="space-y-4">
+        <div className="order-2 space-y-4 lg:order-none">
           <FormulaInput
             value={sampleFormula}
             onChange={handleSampleChange}
@@ -354,7 +354,7 @@ function SampleWeightPage() {
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-sm font-medium">
                 Total Mass (mg)
@@ -383,7 +383,7 @@ function SampleWeightPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-sm font-medium">
                 Pellet Diameter (mm)
@@ -507,14 +507,16 @@ function SampleWeightPage() {
         </div>
 
         {/* Plot */}
-        <ScientificPlot
-          traces={traces}
-          xTitle="Energy (eV)"
-          yTitle="μt (absorption)"
-          title={`Absorption — ${sampleFormula} + ${diluentFormula}`}
-          verticalLines={edgeAnnotations}
-          showLogToggle={false}
-        />
+        <div className="order-1 lg:order-none">
+          <ScientificPlot
+            traces={traces}
+            xTitle="Energy (eV)"
+            yTitle="μt (absorption)"
+            title={`Absorption — ${sampleFormula} + ${diluentFormula}`}
+            verticalLines={edgeAnnotations}
+            showLogToggle={false}
+          />
+        </div>
       </div>
     </div>
   );

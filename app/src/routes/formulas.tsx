@@ -168,15 +168,15 @@ function FormulasPage() {
 
   return (
     <div>
-      <h1 className="mb-4 text-2xl font-bold">Absorption Formulas</h1>
+      <h1 className="mb-4 text-xl font-bold md:text-2xl">Absorption Formulas</h1>
       <p className="mb-6 text-muted-foreground">
         Calculate absorption length, unit edge step, refractive index, and
         elemental contributions for a given material and energy.
       </p>
 
-      <div className="mb-6 grid gap-6 lg:grid-cols-[350px_1fr]">
+      <div className="mb-6 grid gap-6 grid-cols-1 lg:grid-cols-[350px_1fr]">
         {/* Controls */}
-        <div className="space-y-4">
+        <div className="order-2 space-y-4 lg:order-none">
           <MaterialPicker onSelect={handleMaterialSelect} />
           <FormulaInput value={formula} onChange={setFormula} />
 
@@ -206,7 +206,7 @@ function FormulasPage() {
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-sm font-medium">
                 Thickness (cm)
@@ -240,7 +240,7 @@ function FormulasPage() {
 
         {/* Results */}
         {results && (
-          <div className="space-y-4">
+          <div className="order-1 space-y-4 lg:order-none">
             {/* Summary */}
             <div className="rounded-lg border border-border bg-card p-4">
               <div className="mb-3 flex items-center justify-between">
@@ -361,9 +361,9 @@ function FormulasPage() {
                       <th className="pb-2 pr-4">Count</th>
                       <th className="pb-2 pr-4">Molar Mass</th>
                       <th className="pb-2 pr-4">Weight %</th>
-                      <th className="pb-2 pr-4">μ contrib.</th>
-                      <th className="pb-2 pr-4">barns/atom</th>
-                      <th className="pb-2">cm²/g</th>
+                      <th className="hidden pb-2 pr-4 sm:table-cell">μ contrib.</th>
+                      <th className="hidden pb-2 pr-4 sm:table-cell">barns/atom</th>
+                      <th className="hidden pb-2 sm:table-cell">cm²/g</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -382,13 +382,13 @@ function FormulasPage() {
                         <td className="py-1.5 pr-4 font-mono">
                           {(r.weightFraction * 100).toFixed(2)}%
                         </td>
-                        <td className="py-1.5 pr-4 font-mono">
+                        <td className="hidden py-1.5 pr-4 font-mono sm:table-cell">
                           {r.muContribution.toExponential(3)}
                         </td>
-                        <td className="py-1.5 pr-4 font-mono">
+                        <td className="hidden py-1.5 pr-4 font-mono sm:table-cell">
                           {r.barnsPerAtom.toFixed(1)}
                         </td>
-                        <td className="py-1.5 font-mono">
+                        <td className="hidden py-1.5 font-mono sm:table-cell">
                           {r.cm2PerG.toFixed(4)}
                         </td>
                       </tr>

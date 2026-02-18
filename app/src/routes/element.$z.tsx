@@ -247,11 +247,11 @@ function ElementDetailPage() {
       </Link>
 
       <div className="mb-6 flex items-center gap-4">
-        <div className="flex h-20 w-20 items-center justify-center rounded-lg bg-primary/10 text-3xl font-bold text-primary">
+        <div className="flex h-16 w-16 items-center justify-center rounded-lg bg-primary/10 text-2xl font-bold text-primary sm:h-20 sm:w-20 sm:text-3xl">
           {info.symbol}
         </div>
         <div>
-          <h1 className="text-2xl font-bold">
+          <h1 className="text-xl font-bold md:text-2xl">
             {info.name}{" "}
             <span className="text-muted-foreground">(Z={info.z})</span>
           </h1>
@@ -288,7 +288,7 @@ function ElementDetailPage() {
             Elements whose K-edge falls between the sample's fluorescence and
             absorption edge, useful as Z-1 / Z-2 filters.
           </p>
-          <div className="flex gap-4">
+          <div className="flex flex-wrap gap-3">
             {filterZ1 && (
               <Link
                 to="/element/$z"
@@ -321,7 +321,7 @@ function ElementDetailPage() {
         </div>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
         {/* Absorption Edges */}
         <div className="rounded-lg border border-border bg-card p-4">
           <div className="mb-3 flex items-center justify-between">
@@ -366,8 +366,8 @@ function ElementDetailPage() {
                     <th className="pb-2 pr-4">Edge</th>
                     <th className="pb-2 pr-4">Energy (eV)</th>
                     <th className="pb-2 pr-4">&lambda; (&Aring;)</th>
-                    <th className="pb-2 pr-4">Fluor. Yield</th>
-                    <th className="pb-2">Jump Ratio</th>
+                    <th className="hidden pb-2 pr-4 sm:table-cell">Fluor. Yield</th>
+                    <th className="hidden pb-2 sm:table-cell">Jump Ratio</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -385,10 +385,10 @@ function ElementDetailPage() {
                           ? (HC_ANGSTROM / edge.energy).toFixed(4)
                           : "\u2014"}
                       </td>
-                      <td className="py-1.5 pr-4 font-mono">
+                      <td className="hidden py-1.5 pr-4 font-mono sm:table-cell">
                         {edge.fluorescence_yield.toFixed(4)}
                       </td>
-                      <td className="py-1.5 font-mono">
+                      <td className="hidden py-1.5 font-mono sm:table-cell">
                         {edge.jump_ratio.toFixed(4)}
                       </td>
                     </tr>
@@ -444,10 +444,10 @@ function ElementDetailPage() {
                   <tr className="border-b border-border text-left text-muted-foreground">
                     <th className="pb-2 pr-4">Line</th>
                     <th className="pb-2 pr-4">Energy (eV)</th>
-                    <th className="pb-2 pr-4">&lambda; (&Aring;)</th>
+                    <th className="hidden pb-2 pr-4 sm:table-cell">&lambda; (&Aring;)</th>
                     <th className="pb-2 pr-4">Intensity</th>
-                    <th className="pb-2 pr-4">Initial</th>
-                    <th className="pb-2">Final</th>
+                    <th className="hidden pb-2 pr-4 sm:table-cell">Initial</th>
+                    <th className="hidden pb-2 sm:table-cell">Final</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -460,7 +460,7 @@ function ElementDetailPage() {
                       <td className="py-1.5 pr-4 font-mono">
                         {line.energy.toFixed(1)}
                       </td>
-                      <td className="py-1.5 pr-4 font-mono text-muted-foreground">
+                      <td className="hidden py-1.5 pr-4 font-mono text-muted-foreground sm:table-cell">
                         {line.energy > 0
                           ? (HC_ANGSTROM / line.energy).toFixed(4)
                           : "\u2014"}
@@ -468,8 +468,8 @@ function ElementDetailPage() {
                       <td className="py-1.5 pr-4 font-mono">
                         {line.intensity.toFixed(4)}
                       </td>
-                      <td className="py-1.5 pr-4">{line.initial_level}</td>
-                      <td className="py-1.5">{line.final_level}</td>
+                      <td className="hidden py-1.5 pr-4 sm:table-cell">{line.initial_level}</td>
+                      <td className="hidden py-1.5 sm:table-cell">{line.final_level}</td>
                     </tr>
                   ))}
                 </tbody>

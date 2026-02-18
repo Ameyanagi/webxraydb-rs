@@ -82,14 +82,14 @@ function ScatteringPage() {
 
   return (
     <div>
-      <h1 className="mb-4 text-2xl font-bold">Scattering Factors</h1>
+      <h1 className="mb-4 text-xl font-bold md:text-2xl">Scattering Factors</h1>
       <p className="mb-6 text-muted-foreground">
         Anomalous scattering factors f' and f" from Chantler tables.
       </p>
 
-      <div className="mb-6 grid gap-6 lg:grid-cols-[300px_1fr]">
+      <div className="mb-6 grid gap-6 grid-cols-1 lg:grid-cols-[300px_1fr]">
         {/* Controls */}
-        <div className="space-y-4">
+        <div className="order-2 space-y-4 lg:order-none">
           <div>
             <label className="mb-1 block text-sm font-medium">Element</label>
             <input
@@ -139,7 +139,7 @@ function ScatteringPage() {
         </div>
 
         {/* Plots */}
-        <div className="space-y-4">
+        <div className="order-1 space-y-4 lg:order-none">
           <ScientificPlot
             traces={f1Traces}
             xTitle="Energy (eV)"

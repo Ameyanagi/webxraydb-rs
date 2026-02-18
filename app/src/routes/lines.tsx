@@ -149,7 +149,7 @@ function LineFinderPage() {
 
   return (
     <div>
-      <h1 className="mb-4 text-2xl font-bold">Line Finder</h1>
+      <h1 className="mb-4 text-xl font-bold md:text-2xl">Line Finder</h1>
       <p className="mb-6 text-muted-foreground">
         Enter an energy to find the closest emission line. The table scrolls to
         the match.
@@ -252,7 +252,7 @@ function LineFinderPage() {
                 Energy (eV){" "}
                 {sortBy === "energy" ? (sortAsc ? "\u2191" : "\u2193") : ""}
               </th>
-              <th className="px-3 py-2">&lambda; (&Aring;)</th>
+              <th className="hidden px-3 py-2 sm:table-cell">&lambda; (&Aring;)</th>
               <th
                 className="cursor-pointer px-3 py-2"
                 onClick={() => toggleSort("intensity")}
@@ -264,7 +264,7 @@ function LineFinderPage() {
                     : "\u2193"
                   : ""}
               </th>
-              <th className="px-3 py-2">Transition</th>
+              <th className="hidden px-3 py-2 sm:table-cell">Transition</th>
             </tr>
           </thead>
           <tbody>
@@ -288,7 +288,7 @@ function LineFinderPage() {
                   <td className="px-3 py-1.5 font-mono">
                     {r.energy.toFixed(1)}
                   </td>
-                  <td className="px-3 py-1.5 font-mono text-muted-foreground">
+                  <td className="hidden px-3 py-1.5 font-mono text-muted-foreground sm:table-cell">
                     {r.energy > 0
                       ? (HC_ANGSTROM / r.energy).toFixed(4)
                       : "\u2014"}
@@ -296,7 +296,7 @@ function LineFinderPage() {
                   <td className="px-3 py-1.5 font-mono">
                     {r.intensity.toFixed(4)}
                   </td>
-                  <td className="px-3 py-1.5 text-muted-foreground">
+                  <td className="hidden px-3 py-1.5 text-muted-foreground sm:table-cell">
                     {r.initialLevel} &rarr; {r.finalLevel}
                   </td>
                 </tr>

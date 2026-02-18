@@ -267,14 +267,14 @@ function ReflectivityPage() {
 
   return (
     <div>
-      <h1 className="mb-4 text-2xl font-bold">Mirror Reflectivity</h1>
+      <h1 className="mb-4 text-xl font-bold md:text-2xl">Mirror Reflectivity</h1>
       <p className="mb-6 text-muted-foreground">
         Calculate X-ray mirror reflectivity as a function of angle or energy.
       </p>
 
-      <div className="mb-6 grid gap-6 lg:grid-cols-[350px_1fr]">
+      <div className="mb-6 grid gap-6 grid-cols-1 lg:grid-cols-[350px_1fr]">
         {/* Controls */}
-        <div className="space-y-4">
+        <div className="order-2 space-y-4 lg:order-none">
           {/* Plot mode toggle */}
           <div>
             <label className="mb-1 block text-sm font-medium">Plot Mode</label>
@@ -350,7 +350,7 @@ function ReflectivityPage() {
                 label="Custom Material"
               />
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-sm font-medium">
                     Formula
@@ -397,7 +397,7 @@ function ReflectivityPage() {
                 <label className="mb-1 block text-sm font-medium">
                   Angle Range (mrad)
                 </label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                   <div>
                     <label className="block text-xs text-muted-foreground">
                       Start
@@ -459,7 +459,7 @@ function ReflectivityPage() {
                 <label className="mb-1 block text-sm font-medium">
                   Energy Range (eV)
                 </label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                   <div>
                     <label className="block text-xs text-muted-foreground">
                       Start
@@ -578,6 +578,7 @@ function ReflectivityPage() {
         </div>
 
         {/* Plot */}
+        <div className="order-1 lg:order-none">
         <ScientificPlot
           traces={traces}
           xTitle={
@@ -598,6 +599,7 @@ function ReflectivityPage() {
             plotMode === "angle" ? criticalAngleAnnotations : undefined
           }
         />
+        </div>
       </div>
     </div>
   );

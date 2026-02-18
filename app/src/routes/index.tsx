@@ -104,7 +104,7 @@ function HomePage() {
 
   return (
     <div>
-      <h1 className="mb-4 text-2xl font-bold">X-ray Analysis Tools</h1>
+      <h1 className="mb-4 text-xl font-bold md:text-2xl">X-ray Analysis Tools</h1>
       <p className="mb-6 text-muted-foreground">
         Click an element to view its X-ray properties.
       </p>
@@ -176,7 +176,7 @@ function HomePage() {
             </div>
           )}
 
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
             {/* Absorption Edges */}
             <div className="rounded-lg border border-border bg-card p-4">
               <div className="mb-3 flex items-center justify-between">
@@ -221,8 +221,8 @@ function HomePage() {
                         <th className="pb-2 pr-4">Edge</th>
                         <th className="pb-2 pr-4">Energy (eV)</th>
                         <th className="pb-2 pr-4">&lambda; (&Aring;)</th>
-                        <th className="pb-2 pr-4">Fluor. Yield</th>
-                        <th className="pb-2">Jump Ratio</th>
+                        <th className="hidden pb-2 pr-4 sm:table-cell">Fluor. Yield</th>
+                        <th className="hidden pb-2 sm:table-cell">Jump Ratio</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -242,10 +242,10 @@ function HomePage() {
                               ? (HC_ANGSTROM / edge.energy).toFixed(4)
                               : "\u2014"}
                           </td>
-                          <td className="py-1.5 pr-4 font-mono">
+                          <td className="hidden py-1.5 pr-4 font-mono sm:table-cell">
                             {edge.fluorescence_yield.toFixed(4)}
                           </td>
-                          <td className="py-1.5 font-mono">
+                          <td className="hidden py-1.5 font-mono sm:table-cell">
                             {edge.jump_ratio.toFixed(4)}
                           </td>
                         </tr>
@@ -303,7 +303,7 @@ function HomePage() {
                         <th className="pb-2 pr-4">Energy (eV)</th>
                         <th className="pb-2 pr-4">&lambda; (&Aring;)</th>
                         <th className="pb-2 pr-4">Intensity</th>
-                        <th className="pb-2">Transition</th>
+                        <th className="hidden pb-2 sm:table-cell">Transition</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -326,7 +326,7 @@ function HomePage() {
                           <td className="py-1.5 pr-4 font-mono">
                             {line.intensity.toFixed(4)}
                           </td>
-                          <td className="py-1.5 text-muted-foreground">
+                          <td className="hidden py-1.5 text-muted-foreground sm:table-cell">
                             {line.initial_level} &rarr; {line.final_level}
                           </td>
                         </tr>

@@ -111,15 +111,15 @@ function DarwinWidthPage() {
 
   return (
     <div>
-      <h1 className="mb-4 text-2xl font-bold">Darwin Width</h1>
+      <h1 className="mb-4 text-xl font-bold md:text-2xl">Darwin Width</h1>
       <p className="mb-6 text-muted-foreground">
         Calculate crystal monochromator Darwin widths, reflectivity curves, and
         energy resolution.
       </p>
 
-      <div className="mb-6 grid gap-6 lg:grid-cols-[350px_1fr]">
+      <div className="mb-6 grid gap-6 grid-cols-1 lg:grid-cols-[350px_1fr]">
         {/* Controls */}
-        <div className="space-y-4">
+        <div className="order-2 space-y-4 lg:order-none">
           {/* Crystal presets */}
           <div>
             <label className="mb-1 block text-sm font-medium">
@@ -144,7 +144,7 @@ function DarwinWidthPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             <div>
               <label className="mb-1 block text-sm font-medium">Crystal</label>
               <select
@@ -269,7 +269,7 @@ function DarwinWidthPage() {
 
         {/* Plots */}
         {result && (
-          <div className="space-y-4">
+          <div className="order-1 space-y-4 lg:order-none">
             <ScientificPlot
               traces={singleBounceTraces}
               xTitle="Δθ (μrad)"

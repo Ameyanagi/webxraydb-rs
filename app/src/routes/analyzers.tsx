@@ -174,15 +174,15 @@ function AnalyzersPage() {
 
   return (
     <div>
-      <h1 className="mb-4 text-2xl font-bold">Analyzer Crystals</h1>
+      <h1 className="mb-4 text-xl font-bold md:text-2xl">Analyzer Crystals</h1>
       <p className="mb-6 text-muted-foreground">
         Find suitable analyzer crystal reflections for a given emission line.
         Ideal for RIXS and emission spectroscopy.
       </p>
 
-      <div className="mb-6 grid gap-6 lg:grid-cols-[350px_1fr]">
+      <div className="mb-6 grid gap-6 grid-cols-1 lg:grid-cols-[350px_1fr]">
         {/* Controls */}
-        <div className="space-y-4">
+        <div className="order-2 space-y-4 lg:order-none">
           <div>
             <label className="mb-1 block text-sm font-medium">Element</label>
             <input
@@ -253,7 +253,7 @@ function AnalyzersPage() {
             <label className="mb-1 block text-sm font-medium">
               Bragg Angle Range (°)
             </label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <div>
                 <label className="block text-xs text-muted-foreground">
                   Min
@@ -287,7 +287,7 @@ function AnalyzersPage() {
         </div>
 
         {/* Results table */}
-        <div>
+        <div className="order-1 lg:order-none">
           <p className="mb-2 text-xs text-muted-foreground">
             {analyzerResults.length} matching reflections
           </p>
@@ -299,9 +299,9 @@ function AnalyzersPage() {
                   <tr className="border-b border-border text-left text-muted-foreground">
                     <th className="px-3 py-2">Reflection</th>
                     <th className="px-3 py-2">Bragg Angle (°)</th>
-                    <th className="px-3 py-2">Darwin Width (μrad)</th>
+                    <th className="hidden px-3 py-2 sm:table-cell">Darwin Width (μrad)</th>
                     <th className="px-3 py-2">ΔE (eV)</th>
-                    <th className="px-3 py-2">ΔE/E</th>
+                    <th className="hidden px-3 py-2 sm:table-cell">ΔE/E</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -321,13 +321,13 @@ function AnalyzersPage() {
                       <td className="px-3 py-1.5 font-mono">
                         {r.braggAngle.toFixed(3)}
                       </td>
-                      <td className="px-3 py-1.5 font-mono">
+                      <td className="hidden px-3 py-1.5 font-mono sm:table-cell">
                         {r.darwinWidth.toFixed(2)}
                       </td>
                       <td className="px-3 py-1.5 font-mono">
                         {r.energyResolution.toFixed(4)}
                       </td>
-                      <td className="px-3 py-1.5 font-mono">
+                      <td className="hidden px-3 py-1.5 font-mono sm:table-cell">
                         {r.deltaEoverE.toExponential(3)}
                       </td>
                     </tr>

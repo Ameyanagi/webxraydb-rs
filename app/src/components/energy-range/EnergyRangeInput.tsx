@@ -26,7 +26,7 @@ export function EnergyRangeInput({
           {label}
         </label>
       )}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <div className="flex-1">
           <label className="mb-1 block text-xs text-muted-foreground">
             Start (eV)

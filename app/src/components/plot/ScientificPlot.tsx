@@ -1,5 +1,6 @@
 import { useState, useMemo, lazy, Suspense } from "react";
 import type { Data, Layout, Config } from "plotly.js";
+import { useIsMobile } from "~/hooks/useIsMobile";
 
 const Plot = lazy(() => import("react-plotly.js"));
 
@@ -43,8 +44,14 @@ export function ScientificPlot({
   defaultLogX = false,
   verticalLines,
 }: ScientificPlotProps) {
+  const isMobile = useIsMobile();
   const [logY, setLogY] = useState(defaultLogY);
   const [logX, setLogX] = useState(defaultLogX);
+
+  const effectiveHeight = isMobile ? Math.min(height, 320) : height;
+  const plotMargin = isMobile
+    ? { l: 50, r: yTitle2 ? 50 : 20, t: title ? 35 : 15, b: 45 }
+    : { l: 70, r: yTitle2 ? 70 : 30, t: title ? 40 : 20, b: 60 };
 
   const data: Data[] = useMemo(
     () =>
@@ -113,14 +120,14 @@ export function ScientificPlot({
           font: { color: "#ccc" },
           bgcolor: "transparent",
         },
-        margin: { l: 70, r: yTitle2 ? 70 : 30, t: title ? 40 : 20, b: 60 },
-        height,
+        margin: plotMargin,
+        height: effectiveHeight,
         autosize: true,
         shapes,
         annotations,
       };
     },
-    [xTitle, yTitle, yTitle2, title, logX, logY, height, verticalLines],
+    [xTitle, yTitle, yTitle2, title, logX, logY, effectiveHeight, plotMargin, verticalLines],
   );
 
   const config: Partial<Config> = useMemo(
@@ -168,7 +175,7 @@ export function ScientificPlot({
         fallback={
           <div
             className="flex items-center justify-center text-muted-foreground"
-            style={{ height }}
+            style={{ height: effectiveHeight }}
           >
             Loading plot...
           </div>

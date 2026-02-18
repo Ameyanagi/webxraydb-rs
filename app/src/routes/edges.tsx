@@ -182,7 +182,7 @@ function EdgeFinderPage() {
 
   return (
     <div>
-      <h1 className="mb-4 text-2xl font-bold">Edge Finder</h1>
+      <h1 className="mb-4 text-xl font-bold md:text-2xl">Edge Finder</h1>
       <p className="mb-6 text-muted-foreground">
         Enter an energy to find the closest absorption edge. Use harmonic
         buttons to find edges at 1/2 or 1/3 of the energy.
@@ -312,9 +312,9 @@ function EdgeFinderPage() {
                 Energy (eV){" "}
                 {sortBy === "energy" ? (sortAsc ? "\u2191" : "\u2193") : ""}
               </th>
-              <th className="px-3 py-2">&lambda; (&Aring;)</th>
-              <th className="px-3 py-2">Fluor. Yield</th>
-              <th className="px-3 py-2">Jump Ratio</th>
+              <th className="hidden px-3 py-2 sm:table-cell">&lambda; (&Aring;)</th>
+              <th className="hidden px-3 py-2 sm:table-cell">Fluor. Yield</th>
+              <th className="hidden px-3 py-2 sm:table-cell">Jump Ratio</th>
             </tr>
           </thead>
           <tbody>
@@ -338,15 +338,15 @@ function EdgeFinderPage() {
                   <td className="px-3 py-1.5 font-mono">
                     {r.energy.toFixed(1)}
                   </td>
-                  <td className="px-3 py-1.5 font-mono text-muted-foreground">
+                  <td className="hidden px-3 py-1.5 font-mono text-muted-foreground sm:table-cell">
                     {r.energy > 0
                       ? (HC_ANGSTROM / r.energy).toFixed(4)
                       : "\u2014"}
                   </td>
-                  <td className="px-3 py-1.5 font-mono">
+                  <td className="hidden px-3 py-1.5 font-mono sm:table-cell">
                     {r.fluorescenceYield.toFixed(4)}
                   </td>
-                  <td className="px-3 py-1.5 font-mono">
+                  <td className="hidden px-3 py-1.5 font-mono sm:table-cell">
                     {r.jumpRatio.toFixed(4)}
                   </td>
                 </tr>
