@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -41,7 +41,20 @@ jobs:
         working-directory: app
         run: bun install --frozen-lockfile
 
-      - name: Build app
+      # Build for local use (base path = /)
+      - name: Build app (standalone)
+        working-directory: app
+        run: bun run build
+
+      # Package release archives
+      - name: Create release archives
+        run: |
+          cd app/dist/client
+          tar -czf ../../../webxraydb-rs.tar.gz .
+          zip -r ../../../webxraydb-rs.zip .
+
+      # Rebuild for GitHub Pages (base path = /repo-name/)
+      - name: Build app (GitHub Pages)
         working-directory: app
         env:
           BASE_PATH: /${{ github.event.repository.name }}/
@@ -63,3 +76,28 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      # Create/update rolling release
+      - name: Update latest release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest Build
+          body: |
+            Standalone static build of webxraydb-rs.
+
+            Download and serve locally:
+            ```
+            tar xzf webxraydb-rs.tar.gz
+            npx serve .
+            ```
+            or
+            ```
+            unzip webxraydb-rs.zip -d webxraydb-rs
+            cd webxraydb-rs
+            python3 -m http.server 8000
+            ```
+          files: |
+            webxraydb-rs.tar.gz
+            webxraydb-rs.zip
+          make_latest: true
