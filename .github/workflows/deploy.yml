@@ -41,10 +41,24 @@ jobs:
         working-directory: app
         run: bun install --frozen-lockfile
 
-      # Build for local use (base path = /)
+      # Build for local use (relative paths so index.html works from file://)
       - name: Build app (standalone)
         working-directory: app
+        env:
+          BASE_PATH: ./
         run: bun run build
+
+      # Fix asset paths for file:// usage
+      # Root index.html: /./assets/ → ./assets/
+      # Subdir pages (e.g. edges/index.html): /./assets/ → ../assets/
+      - name: Fix asset paths for file:// usage
+        run: |
+          # Fix root index.html
+          sed -i 's|"/\./assets/|"./assets/|g; s|'"'"'/\./assets/|'"'"'./assets/|g; s|("/\./assets/|("./assets/|g' app/dist/client/index.html
+          # Fix subdirectory index.html files
+          find app/dist/client -mindepth 2 -name '*.html' -exec sed -i 's|"/\./assets/|"../assets/|g; s|'"'"'/\./assets/|'"'"'../assets/|g; s|("/\./assets/|("../assets/|g' {} +
+          # Also fix ./assets/ refs (from Vite's base) in subdirs
+          find app/dist/client -mindepth 2 -name '*.html' -exec sed -i 's|"./assets/|"../assets/|g' {} +
 
       # Package release archives
       - name: Create release archives
@@ -86,16 +100,10 @@ jobs:
           body: |
             Standalone static build of webxraydb-rs.
 
-            Download and serve locally:
-            ```
-            tar xzf webxraydb-rs.tar.gz
-            npx serve .
-            ```
-            or
+            Extract and open `index.html` in your browser:
             ```
             unzip webxraydb-rs.zip -d webxraydb-rs
-            cd webxraydb-rs
-            python3 -m http.server 8000
+            open webxraydb-rs/index.html
             ```
           files: |
             webxraydb-rs.tar.gz
