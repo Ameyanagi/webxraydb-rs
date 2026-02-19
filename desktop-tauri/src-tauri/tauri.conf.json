@@ -7,7 +7,7 @@
     "beforeDevCommand": "cd ../app && bun install --frozen-lockfile && bun run dev",
     "devUrl": "http://localhost:5173",
     "beforeBuildCommand": "cd .. && wasm-pack build crates/webxraydb-wasm --target web --out-dir ../../app/src/wasm-pkg && cd app && bun install --frozen-lockfile && bun run build",
-    "frontendDist": "../app/dist/client"
+    "frontendDist": "../../app/dist/client"
   },
   "app": {
     "windows": [

@@ -7,10 +7,12 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
+    "lint:ox": "oxlint --deny-warnings src",
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "test:run": "vitest run",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "prepare": "simple-git-hooks"
   },
   "dependencies": {
     "@tanstack/react-router": "^1",
@@ -28,15 +30,20 @@
     "@types/node": "^24.3.1",
     "@types/plotly.js": "^3.0.6",
     "@types/react": "^19",
-    "@types/react-plotly.js": "^2.6.3",
     "@types/react-dom": "^19",
+    "@types/react-plotly.js": "^2.6.3",
     "@vitejs/plugin-react": "^4",
+    "jsdom": "^27.0.0",
     "nitro": "3.0.1-alpha.2",
+    "oxlint": "^1.26.0",
+    "simple-git-hooks": "^2.13.1",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vite": "^7",
     "vite-tsconfig-paths": "^5",
-    "vitest": "^3.2.4",
-    "jsdom": "^27.0.0"
+    "vitest": "^3.2.4"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "cd \"$(git rev-parse --show-toplevel)/app\" && bun run lint:ox && bun run typecheck"
   }
 }

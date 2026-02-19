@@ -2,12 +2,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect } from "react";
 import { useWasm } from "~/hooks/useWasm";
 import {
-  all_elements,
   xray_lines,
   darwin_width,
   xray_edge_energy,
 } from "~/lib/wasm-api";
-import type { ElementData } from "~/components/periodic-table/types";
 import { LoadingState } from "~/components/ui/LoadingState";
 import { PageHeader } from "~/components/ui/PageHeader";
 import { EmptyState } from "~/components/ui/EmptyState";
@@ -60,16 +58,6 @@ function AnalyzersPage() {
   const [crystalFilter, setCrystalFilter] = useState("All");
   const [minAngle, setMinAngle] = useState(10);
   const [maxAngle, setMaxAngle] = useState(89);
-
-  // Get elements list for dropdown
-  const elements: ElementData[] = useMemo(() => {
-    if (!ready) return [];
-    try {
-      return all_elements() as ElementData[];
-    } catch {
-      return [];
-    }
-  }, [ready]);
 
   // Get emission lines for selected element
   const emissionLines = useMemo(() => {

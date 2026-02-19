@@ -12,6 +12,20 @@ bun install
 bun run dev
 ```
 
+### Pre-commit Hooks (TypeScript / Oxlint)
+
+`app/package.json` configures `simple-git-hooks` to run on `pre-commit`:
+
+- `bun run lint:ox` (Oxlint on `app/src`)
+- `bun run typecheck`
+
+Install/update hooks with:
+
+```bash
+cd app
+bun install
+```
+
 ## Desktop App (Independent Subproject)
 
 Desktop packaging lives in `desktop-tauri/`.
