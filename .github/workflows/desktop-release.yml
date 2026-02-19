@@ -64,6 +64,21 @@ jobs:
           bundle_dir=desktop-tauri/src-tauri/target/release/bundle
           mkdir -p "$out_dir"
 
+          # Ensure we always publish a portable macOS .app archive.
+          if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+            while IFS= read -r -d '' app_dir; do
+              app_name="$(basename "$app_dir")"
+              app_base="${app_name%.app}"
+              app_parent="$(dirname "$app_dir")"
+              tar -czf "$out_dir/${app_base}.app.tar.gz" -C "$app_parent" "$app_name"
+            done < <(find "$bundle_dir" -type d -name '*.app' -print0)
+
+            if ! ls "$out_dir"/*.app.tar.gz >/dev/null 2>&1; then
+              echo "No macOS .app bundle found in $bundle_dir"
+              exit 1
+            fi
+          fi
+
           find "$bundle_dir" -type f \
             \( -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' -o -name '*.dmg' -o -name '*.app.tar.gz' \) \
             -exec cp {} "$out_dir"/ \;
