@@ -51,8 +51,26 @@ jobs:
         working-directory: desktop-tauri
         run: bun install --frozen-lockfile
 
+      - name: Detect macOS notarization configuration
+        id: mac_notarization
+        if: matrix.os == 'macos-latest'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$APPLE_CERTIFICATE" && -n "$APPLE_CERTIFICATE_PASSWORD" && -n "$KEYCHAIN_PASSWORD" && -n "$APPLE_ID" && -n "$APPLE_PASSWORD" && -n "$APPLE_TEAM_ID" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Import Apple signing certificate
-        if: matrix.os == 'macos-latest' && secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.KEYCHAIN_PASSWORD != '' && secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' && secrets.APPLE_TEAM_ID != ''
+        if: matrix.os == 'macos-latest' && steps.mac_notarization.outputs.enabled == 'true'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -81,7 +99,7 @@ jobs:
           security find-identity -v -p codesigning "$keychain_path"
 
       - name: Build desktop bundles (macOS notarized)
-        if: matrix.os == 'macos-latest' && secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.KEYCHAIN_PASSWORD != '' && secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' && secrets.APPLE_TEAM_ID != ''
+        if: matrix.os == 'macos-latest' && steps.mac_notarization.outputs.enabled == 'true'
         working-directory: desktop-tauri
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -93,7 +111,7 @@ jobs:
         run: bun run build
 
       - name: Build desktop bundles (macOS fallback)
-        if: matrix.os == 'macos-latest' && (secrets.APPLE_CERTIFICATE == '' || secrets.APPLE_CERTIFICATE_PASSWORD == '' || secrets.KEYCHAIN_PASSWORD == '' || secrets.APPLE_ID == '' || secrets.APPLE_PASSWORD == '' || secrets.APPLE_TEAM_ID == '')
+        if: matrix.os == 'macos-latest' && steps.mac_notarization.outputs.enabled != 'true'
         working-directory: desktop-tauri
         run: bun run build
 
@@ -105,7 +123,7 @@ jobs:
       - name: Collect release installers (macOS/Linux)
         if: matrix.os != 'windows-latest'
         env:
-          MACOS_NOTARIZATION_ENABLED: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.KEYCHAIN_PASSWORD != '' && secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
+          MACOS_NOTARIZATION_ENABLED: ${{ steps.mac_notarization.outputs.enabled || 'false' }}
         run: |
           set -euo pipefail
 
@@ -220,6 +238,7 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: WebXrayDB Desktop ${{ github.ref_name }}
+          make_latest: true
           body: |
             Independent desktop release of WebXrayDB.
 
