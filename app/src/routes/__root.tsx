@@ -10,12 +10,12 @@ import appCss from "~/styles/app.css?url";
 import {
   ThemeContext,
   loadSavedMode,
-  loadSavedAccent,
+  loadSavedPreset,
   saveMode,
-  saveAccent,
+  savePreset,
   resolveMode,
   type ThemeMode,
-  type AccentColor,
+  type ThemePreset,
 } from "~/lib/theme";
 
 export const Route = createRootRoute({
@@ -49,11 +49,12 @@ const navItems = [
   { to: "/analyzers", label: "Analyzers" },
 ] as const;
 
-const ACCENT_OPTIONS: { value: AccentColor; label: string; hue: string }[] = [
-  { value: "blue", label: "Blue", hue: "oklch(0.7 0.15 230)" },
-  { value: "green", label: "Green", hue: "oklch(0.65 0.18 155)" },
-  { value: "purple", label: "Purple", hue: "oklch(0.65 0.18 285)" },
-  { value: "orange", label: "Orange", hue: "oklch(0.7 0.15 55)" },
+const THEME_OPTIONS: { value: ThemePreset; label: string; hue: string }[] = [
+  { value: "default", label: "Default", hue: "oklch(0.7 0.15 230)" },
+  { value: "nature", label: "Nature", hue: "oklch(0.5234 0.1347 144.1672)" },
+  { value: "amethyst", label: "Amethyst", hue: "oklch(0.6104 0.0767 299.7335)" },
+  { value: "sapphire", label: "Sapphire", hue: "oklch(0.6723 0.1606 244.9955)" },
+  { value: "rose", label: "Rose", hue: "oklch(0.5316 0.1409 355.1999)" },
 ];
 
 function NavList({ onNavigate }: { onNavigate?: () => void }) {
@@ -75,21 +76,21 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 function ThemeControlsInner() {
-  const { mode, accent, setMode, setAccent } = useContext(ThemeContext);
+  const { mode, preset, setMode, setPreset } = useContext(ThemeContext);
 
   return (
     <div className="space-y-3 border-t border-border pt-3">
-      {/* Mode toggle */}
-      <div className="flex items-center gap-1">
+      {/* Mode toggle — icon + label */}
+      <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
         {(["light", "dark", "system"] as ThemeMode[]).map((m) => (
           <button
             key={m}
             type="button"
             onClick={() => setMode(m)}
-            className={`flex-1 rounded px-2 py-1.5 text-xs ${
+            className={`flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-medium transition-colors ${
               mode === m
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
             }`}
           >
             {m === "light" ? (
@@ -99,23 +100,24 @@ function ThemeControlsInner() {
             ) : (
               <SystemIcon />
             )}
+            <span className="capitalize">{m}</span>
           </button>
         ))}
       </div>
-      {/* Accent color */}
+      {/* Theme preset */}
       <div className="flex items-center gap-1.5">
-        {ACCENT_OPTIONS.map((a) => (
+        {THEME_OPTIONS.map((t) => (
           <button
-            key={a.value}
+            key={t.value}
             type="button"
-            onClick={() => setAccent(a.value)}
-            title={a.label}
+            onClick={() => setPreset(t.value)}
+            title={t.label}
             className={`h-5 w-5 rounded-full border-2 transition-transform ${
-              accent === a.value
+              preset === t.value
                 ? "scale-110 border-foreground"
                 : "border-transparent hover:scale-105"
             }`}
-            style={{ backgroundColor: a.hue }}
+            style={{ backgroundColor: t.hue }}
           />
         ))}
       </div>
@@ -160,7 +162,7 @@ function SystemIcon() {
 function RootDocument({ children }: { children: ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [mode, setModeState] = useState<ThemeMode>(() => loadSavedMode());
-  const [accent, setAccentState] = useState<AccentColor>(() => loadSavedAccent());
+  const [preset, setPresetState] = useState<ThemePreset>(() => loadSavedPreset());
   const [resolvedModeVal, setResolvedMode] = useState<"light" | "dark">(() =>
     resolveMode(mode),
   );
@@ -170,9 +172,9 @@ function RootDocument({ children }: { children: ReactNode }) {
     saveMode(m);
   }, []);
 
-  const setAccent = useCallback((a: AccentColor) => {
-    setAccentState(a);
-    saveAccent(a);
+  const setPreset = useCallback((p: ThemePreset) => {
+    setPresetState(p);
+    savePreset(p);
   }, []);
 
   // Resolve mode and sync with <html> class + data attribute
@@ -186,8 +188,13 @@ function RootDocument({ children }: { children: ReactNode }) {
     } else {
       html.classList.remove("dark");
     }
-    html.setAttribute("data-accent", accent);
-  }, [mode, accent]);
+
+    if (preset === "default") {
+      html.removeAttribute("data-theme");
+    } else {
+      html.setAttribute("data-theme", preset);
+    }
+  }, [mode, preset]);
 
   // Listen for system preference changes when mode is "system"
   useEffect(() => {
@@ -200,14 +207,14 @@ function RootDocument({ children }: { children: ReactNode }) {
 
   const themeValue = {
     mode,
-    accent,
+    preset,
     setMode,
-    setAccent,
+    setPreset,
     resolvedMode: resolvedModeVal,
   };
 
   return (
-    <html lang="en" className="dark" data-accent={accent}>
+    <html lang="en" className="dark">
       <head>
         <HeadContent />
       </head>
