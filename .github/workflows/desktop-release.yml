@@ -55,26 +55,47 @@ jobs:
         working-directory: desktop-tauri
         run: bun run build
 
-      - name: Package desktop bundles (macOS/Linux)
+      - name: Collect release installers (macOS/Linux)
         if: matrix.os != 'windows-latest'
         run: |
-          cd desktop-tauri/src-tauri/target/release
-          tar -czf ../../../../webxraydb-desktop-${{ github.ref_name }}-${{ matrix.platform }}.tar.gz bundle
+          set -euo pipefail
 
-      - name: Package desktop bundles (Windows)
+          out_dir=release-files
+          bundle_dir=desktop-tauri/src-tauri/target/release/bundle
+          mkdir -p "$out_dir"
+
+          find "$bundle_dir" -type f \
+            \( -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' -o -name '*.dmg' -o -name '*.app.tar.gz' \) \
+            -exec cp {} "$out_dir"/ \;
+
+          ls -lh "$out_dir"
+          test -n "$(ls -A "$out_dir")"
+
+      - name: Collect release installers (Windows)
         if: matrix.os == 'windows-latest'
         shell: powershell
         run: |
-          Compress-Archive `
-            -Path desktop-tauri/src-tauri/target/release/bundle/* `
-            -DestinationPath webxraydb-desktop-${{ github.ref_name }}-${{ matrix.platform }}.zip `
-            -Force
+          $outDir = "release-files"
+          $bundleDir = "desktop-tauri/src-tauri/target/release/bundle"
+          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
-      - name: Upload desktop bundle archives
+          foreach ($pattern in @("*.exe", "*.msi")) {
+            Get-ChildItem -Path $bundleDir -File -Recurse -Filter $pattern | ForEach-Object {
+              Copy-Item -Path $_.FullName -Destination $outDir -Force
+            }
+          }
+
+          if (-not (Get-ChildItem -Path $outDir -File)) {
+            throw "No Windows installer files found in $bundleDir"
+          }
+
+          Get-ChildItem -Path $outDir -File
+
+      - name: Upload desktop installers
         uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.platform }}
-          path: webxraydb-desktop-${{ github.ref_name }}-${{ matrix.platform }}.*
+          path: release-files/*
           if-no-files-found: error
 
   release:
@@ -94,6 +115,6 @@ jobs:
           body: |
             Independent desktop release of WebXrayDB.
 
-            Included bundles are built for macOS, Windows, and Linux.
+            Included installers are built for macOS, Windows, and Linux.
           files: |
             desktop-release-artifacts/**/*

@@ -45,4 +45,5 @@ Desktop releases are published by tag via GitHub Actions.
 
 - Tag pattern: `desktop-vX.Y.Z`
 - Workflow: `.github/workflows/desktop-release.yml`
-- Output: GitHub Release with macOS, Windows, and Linux bundles
+- Output: GitHub Release with platform installers uploaded as separate assets
+  (for example `.AppImage`, `.deb`, `.rpm`, `.dmg`, `.exe`, `.msi` when available)
