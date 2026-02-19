@@ -47,3 +47,8 @@ Desktop releases are published by tag via GitHub Actions.
 - Workflow: `.github/workflows/desktop-release.yml`
 - Output: GitHub Release with platform installers uploaded as separate assets
   (for example `.AppImage`, `.deb`, `.rpm`, `.dmg`, `.app.tar.gz`, `.exe`, `.msi`, and a Windows portable `.exe` when available)
+
+macOS note:
+- The release workflow re-signs the generated `.app` before packaging.
+- Without Apple Developer notarization, Gatekeeper may still block first launch on downloaded artifacts.
+- Local override command: `xattr -dr com.apple.quarantine /Applications/WebXrayDB.app`

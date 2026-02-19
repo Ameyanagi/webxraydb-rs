@@ -64,24 +64,42 @@ jobs:
           bundle_dir=desktop-tauri/src-tauri/target/release/bundle
           mkdir -p "$out_dir"
 
-          # Ensure we always publish a portable macOS .app archive.
+          # Build macOS portable/app artifacts from a freshly signed .app bundle.
           if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
             while IFS= read -r -d '' app_dir; do
               app_name="$(basename "$app_dir")"
               app_base="${app_name%.app}"
               app_parent="$(dirname "$app_dir")"
+
+              # Re-sign app bundle to avoid invalid bundle signature in distributed archives.
+              codesign --force --deep --sign - "$app_dir"
+              codesign --verify --deep --strict --verbose=2 "$app_dir"
+
+              # Portable mac app archive.
               tar -czf "$out_dir/${app_base}.app.tar.gz" -C "$app_parent" "$app_name"
+
+              # macOS disk image created from the signed app bundle.
+              app_arch="$(file "$app_dir/Contents/MacOS/webxraydb-desktop" | awk -F'[(), ]+' '{for (i=1;i<=NF;i++) if ($i ~ /^arm64$|^x86_64$/) {print $i; exit}}')"
+              if [[ -z "$app_arch" ]]; then
+                app_arch="unknown"
+              fi
+              hdiutil create \
+                -volname "$app_base" \
+                -srcfolder "$app_dir" \
+                -ov \
+                -format UDZO \
+                "$out_dir/${app_base}_${app_arch}.dmg"
             done < <(find "$bundle_dir" -type d -name '*.app' -print0)
 
             if ! ls "$out_dir"/*.app.tar.gz >/dev/null 2>&1; then
               echo "No macOS .app bundle found in $bundle_dir"
               exit 1
             fi
+          else
+            find "$bundle_dir" -type f \
+              \( -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' \) \
+              -exec cp {} "$out_dir"/ \;
           fi
-
-          find "$bundle_dir" -type f \
-            \( -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' -o -name '*.dmg' -o -name '*.app.tar.gz' \) \
-            -exec cp {} "$out_dir"/ \;
 
           ls -lh "$out_dir"
           test -n "$(ls -A "$out_dir")"
