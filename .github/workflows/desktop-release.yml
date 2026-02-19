@@ -77,13 +77,24 @@ jobs:
         run: |
           $outDir = "release-files"
           $bundleDir = "desktop-tauri/src-tauri/target/release/bundle"
+          $releaseDir = "desktop-tauri/src-tauri/target/release"
           New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
+          # Installer bundles from Tauri.
           foreach ($pattern in @("*.exe", "*.msi")) {
             Get-ChildItem -Path $bundleDir -File -Recurse -Filter $pattern | ForEach-Object {
               Copy-Item -Path $_.FullName -Destination $outDir -Force
             }
           }
+
+          # Portable standalone app binary (no setup wizard).
+          $portableExe = @(Get-ChildItem -Path $releaseDir -File -Filter "*.exe")
+          if (-not $portableExe) {
+            throw "No portable Windows executable found in $releaseDir"
+          }
+
+          $portableName = "WebXrayDB_${{ github.ref_name }}_x64-portable.exe"
+          Copy-Item -Path $portableExe[0].FullName -Destination (Join-Path $outDir $portableName) -Force
 
           if (-not (Get-ChildItem -Path $outDir -File)) {
             throw "No Windows installer files found in $bundleDir"
