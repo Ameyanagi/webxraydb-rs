@@ -9,7 +9,7 @@ import {
   corehole_widths,
   mu_elam,
 } from "~/lib/wasm-api";
-import { energyRange } from "~/lib/constants";
+// energyRange no longer needed — energy range computed from element edges
 import { PeriodicTable } from "~/components/periodic-table/PeriodicTable";
 import type { ElementData } from "~/components/periodic-table/types";
 import { ScientificPlot } from "~/components/plot/ScientificPlot";
@@ -24,16 +24,20 @@ export const Route = createFileRoute("/")({
   component: HomePage,
 });
 
+const EDGE_PRIORITY = ["K", "L3", "L2", "L1"];
+
 function HomePage() {
   const ready = useWasm();
   const [selectedZ, setSelectedZ] = useState<number | null>(null);
   const [filterOverlays, setFilterOverlays] = useState<Set<"z1" | "z2">>(
     () => new Set(),
   );
+  const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
 
-  // Reset overlays when element changes
+  // Reset overlays and edge focus when element changes
   useEffect(() => {
     setFilterOverlays(new Set());
+    setSelectedEdge(null);
   }, [selectedZ]);
 
   const toggleFilter = useCallback((which: "z1" | "z2") => {
@@ -116,18 +120,58 @@ function HomePage() {
     }
   }, [ready, selectedZ]);
 
+  // Available edges in priority order for the edge-of-interest selector
+  const orderedEdges = useMemo(() => {
+    if (!data) return [];
+    const available = data.edges.filter((e) => e.energy > 100);
+    return EDGE_PRIORITY.filter((label) =>
+      available.some((e) => e.label === label),
+    ).map((label) => available.find((e) => e.label === label)!);
+  }, [data]);
+
+  // Compute energy range and xRange based on element edges and selected edge
+  const plotEnergyRange = useMemo(() => {
+    if (!data || data.edges.length === 0) return null;
+    const edgeEnergies = data.edges.map((e) => e.energy).filter((e) => e > 100);
+    if (edgeEnergies.length === 0) return null;
+
+    const maxEdge = Math.max(...edgeEnergies);
+    const minEdge = Math.min(...edgeEnergies);
+    const eStart = Math.max(100, minEdge * 0.3);
+    const eEnd = maxEdge * 1.5;
+
+    // Always provide explicit xRange to prevent Plotly log-scale autorange issues with annotations
+    let xRange: [number, number];
+    if (selectedEdge) {
+      const edgeData = data.edges.find((e) => e.label === selectedEdge);
+      xRange = edgeData
+        ? [Math.max(100, edgeData.energy * 0.5), edgeData.energy * 2.0]
+        : [eStart, eEnd];
+    } else {
+      xRange = [eStart, eEnd];
+    }
+
+    return { eStart, eEnd, xRange };
+  }, [data, selectedEdge]);
+
   // Attenuation plot with filter overlays
   const attenuationPlot = useMemo<PlotTrace[]>(() => {
-    if (!data || data.edges.length === 0) return [];
+    if (!data || !plotEnergyRange) return [];
     try {
-      const energies = energyRange(100, 40000, 50);
-      const energyArr = Array.from(energies);
+      const { eStart, eEnd } = plotEnergyRange;
+      const nPoints = 500;
+      const step = Math.max(1, (eEnd - eStart) / nPoints);
+      const energiesArr: number[] = [];
+      for (let e = eStart; e <= eEnd; e += step) {
+        energiesArr.push(e);
+      }
+      const energies = new Float64Array(energiesArr);
       const result: PlotTrace[] = [];
 
       // Primary element
       const mu = mu_elam(data.info.symbol, energies, "total") as Float64Array;
       result.push({
-        x: energyArr,
+        x: energiesArr,
         y: Array.from(mu),
         name: `${data.info.symbol} total`,
       });
@@ -136,7 +180,7 @@ function HomePage() {
       if (filterOverlays.has("z1") && data.filterZ1) {
         const fmu = mu_elam(data.filterZ1.symbol, energies, "total") as Float64Array;
         result.push({
-          x: energyArr,
+          x: energiesArr,
           y: Array.from(fmu),
           name: `${data.filterZ1.symbol} filter (Z-1)`,
           line: { color: "#f59e0b", width: 2 },
@@ -147,7 +191,7 @@ function HomePage() {
       if (filterOverlays.has("z2") && data.filterZ2) {
         const fmu = mu_elam(data.filterZ2.symbol, energies, "total") as Float64Array;
         result.push({
-          x: energyArr,
+          x: energiesArr,
           y: Array.from(fmu),
           name: `${data.filterZ2.symbol} filter (Z-2)`,
           line: { color: "#a78bfa", width: 2 },
@@ -158,18 +202,23 @@ function HomePage() {
     } catch {
       return [];
     }
-  }, [data, filterOverlays]);
+  }, [data, filterOverlays, plotEnergyRange]);
 
   // Annotations: fluorescence lines (dashed green) + edges (dotted red) + filter edges
+  // Only include annotations within the visible energy range
   const attenuationAnnotations = useMemo<PlotAnnotation[]>(() => {
-    if (!data) return [];
+    if (!data || !plotEnergyRange) return [];
     const result: PlotAnnotation[] = [];
+
+    // Determine visible range for filtering annotations
+    const visRange = plotEnergyRange.xRange ?? [plotEnergyRange.eStart, plotEnergyRange.eEnd];
+    const inRange = (e: number) => e >= visRange[0] * 0.9 && e <= visRange[1] * 1.1;
 
     // Top fluorescence lines as dashed green vertical lines
     const strongLines = [...data.lines]
       .sort((a, b) => b.intensity - a.intensity)
       .slice(0, 8)
-      .filter((l) => l.energy > 100);
+      .filter((l) => l.energy > 100 && inRange(l.energy));
     for (const line of strongLines) {
       result.push({
         x: line.energy,
@@ -179,9 +228,9 @@ function HomePage() {
       });
     }
 
-    // Edge annotations as dotted red vertical lines
+    // Edge annotations as dotted red vertical lines (only in visible range)
     for (const edge of data.edges) {
-      if (edge.energy > 100) {
+      if (edge.energy > 100 && inRange(edge.energy)) {
         result.push({
           x: edge.energy,
           text: `${data.info.symbol} ${edge.label}`,
@@ -191,14 +240,14 @@ function HomePage() {
     }
 
     // Filter K-edge annotations
-    if (filterOverlays.has("z1") && data.filterZ1) {
+    if (filterOverlays.has("z1") && data.filterZ1 && inRange(data.filterZ1.kEdge)) {
       result.push({
         x: data.filterZ1.kEdge,
         text: `${data.filterZ1.symbol} K`,
         color: "#f59e0b",
       });
     }
-    if (filterOverlays.has("z2") && data.filterZ2) {
+    if (filterOverlays.has("z2") && data.filterZ2 && inRange(data.filterZ2.kEdge)) {
       result.push({
         x: data.filterZ2.kEdge,
         text: `${data.filterZ2.symbol} K`,
@@ -207,7 +256,7 @@ function HomePage() {
     }
 
     return result;
-  }, [data, filterOverlays]);
+  }, [data, filterOverlays, plotEnergyRange]);
 
   if (!ready) {
     return <LoadingState />;
@@ -252,12 +301,44 @@ function HomePage() {
               </div>
             </div>
 
-            {/* Attenuation card with fluorescence lines + edges integrated */}
+            {/* Edge focus + Attenuation card */}
             {attenuationPlot.length > 0 && (
               <div className="rounded-lg border border-border bg-card p-2">
-                <h3 className="mb-1 px-1 text-xs font-semibold text-muted-foreground">
-                  X-ray Attenuation (&mu;/&rho;)
-                </h3>
+                <div className="mb-1 flex flex-wrap items-center gap-1 px-1">
+                  <h3 className="text-xs font-semibold text-muted-foreground">
+                    X-ray Attenuation (&mu;/&rho;)
+                  </h3>
+                  {orderedEdges.length > 0 && (
+                    <>
+                      <span className="mx-1 text-xs text-muted-foreground">|</span>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedEdge(null)}
+                        className={`rounded px-2 py-0.5 text-[10px] font-medium ${
+                          selectedEdge === null
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                        }`}
+                      >
+                        All
+                      </button>
+                      {orderedEdges.map((edge) => (
+                        <button
+                          key={edge.label}
+                          type="button"
+                          onClick={() => setSelectedEdge(edge.label)}
+                          className={`rounded px-2 py-0.5 text-[10px] font-medium ${
+                            selectedEdge === edge.label
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                          }`}
+                        >
+                          {edge.label}
+                        </button>
+                      ))}
+                    </>
+                  )}
+                </div>
                 <ScientificPlot
                   traces={attenuationPlot}
                   xTitle="Energy (eV)"
@@ -267,6 +348,7 @@ function HomePage() {
                   defaultLogX
                   showLogToggle={false}
                   verticalLines={attenuationAnnotations}
+                  xRange={plotEnergyRange?.xRange}
                 />
               </div>
             )}

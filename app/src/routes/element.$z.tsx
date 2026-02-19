@@ -37,7 +37,7 @@ function ElementDetailPage() {
   const ready = useWasm();
 
   const [visibleCrossSections, setVisibleCrossSections] = useState<Set<string>>(
-    () => new Set(["total", "photo"]),
+    () => new Set(["total", "photo", "coherent", "incoherent"]),
   );
   const [filterOverlays, setFilterOverlays] = useState<Set<"z1" | "z2">>(
     () => new Set(),
@@ -143,12 +143,19 @@ function ElementDetailPage() {
     ).map((label) => available.find((e) => e.label === label)!);
   }, [data]);
 
-  // Compute xRange based on selected edge
+  // Compute xRange based on selected edge (always explicit to prevent Plotly log-scale autorange issues)
   const edgeXRange = useMemo<[number, number] | undefined>(() => {
-    if (!selectedEdge || !data) return undefined;
-    const edgeData = data.edges.find((e) => e.label === selectedEdge);
-    if (!edgeData) return undefined;
-    return [Math.max(100, edgeData.energy * 0.5), edgeData.energy * 2.0];
+    if (!data) return undefined;
+    if (selectedEdge) {
+      const edgeData = data.edges.find((e) => e.label === selectedEdge);
+      if (edgeData) return [Math.max(100, edgeData.energy * 0.5), edgeData.energy * 2.0];
+    }
+    // Full range: compute from all edges
+    const edgeEnergies = data.edges.map((e) => e.energy).filter((e) => e > 100);
+    if (edgeEnergies.length === 0) return undefined;
+    const minEdge = Math.min(...edgeEnergies);
+    const maxEdge = Math.max(...edgeEnergies);
+    return [Math.max(100, minEdge * 0.3), maxEdge * 1.5];
   }, [selectedEdge, data]);
 
   // Cross-section plot: element μ/ρ, filter element μ/ρ, fluorescence lines
@@ -236,8 +243,13 @@ function ElementDetailPage() {
       });
     }
 
-    // Fluorescence emission lines as vertical markers (dashed green)
-    const strongLines = lines.filter((l) => l.intensity > 0.01 && l.energy > 100);
+    // Determine visible range for filtering annotations
+    const visStart = edgeXRange ? edgeXRange[0] * 0.9 : eStart;
+    const visEnd = edgeXRange ? edgeXRange[1] * 1.1 : eEnd;
+    const inRange = (e: number) => e >= visStart && e <= visEnd;
+
+    // Fluorescence emission lines as vertical markers (dashed green) — only in visible range
+    const strongLines = lines.filter((l) => l.intensity > 0.01 && l.energy > 100 && inRange(l.energy));
     for (const line of strongLines.slice(0, 15)) {
       annotations.push({
         x: line.energy,
@@ -247,9 +259,9 @@ function ElementDetailPage() {
       });
     }
 
-    // Edge annotations (dotted red)
+    // Edge annotations (dotted red) — only in visible range
     for (const edge of edges) {
-      if (edge.energy > 100) {
+      if (edge.energy > 100 && inRange(edge.energy)) {
         annotations.push({
           x: edge.energy,
           text: `${info.symbol} ${edge.label}`,
@@ -259,7 +271,7 @@ function ElementDetailPage() {
     }
 
     return { traces, annotations };
-  }, [ready, data, visibleCrossSections, filterOverlays]);
+  }, [ready, data, visibleCrossSections, filterOverlays, edgeXRange]);
 
   if (!ready) {
     return <LoadingState message="Loading element data..." />;
