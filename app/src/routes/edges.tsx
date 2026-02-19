@@ -323,6 +323,7 @@ function EdgeFinderPage() {
             title="Absorption Edges"
             height={350}
             defaultLogX
+            defaultLogY
             showLogToggle
             verticalLines={edgePlotAnnotations}
           />
