@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useWasm } from "~/hooks/useWasm";
 import {
   element_info,
@@ -23,9 +23,44 @@ export const Route = createFileRoute("/element/$z")({
 
 const HC_ANGSTROM = 12398.4; // eV·Å
 
+const CROSS_SECTION_TYPES = [
+  { key: "total", label: "Total" },
+  { key: "photo", label: "Photo" },
+  { key: "coherent", label: "Coherent" },
+  { key: "incoherent", label: "Incoherent" },
+] as const;
+
+const EDGE_PRIORITY = ["K", "L3", "L2", "L1"];
+
 function ElementDetailPage() {
   const { z } = Route.useParams();
   const ready = useWasm();
+
+  const [visibleCrossSections, setVisibleCrossSections] = useState<Set<string>>(
+    () => new Set(["total", "photo"]),
+  );
+  const [filterOverlays, setFilterOverlays] = useState<Set<"z1" | "z2">>(
+    () => new Set(),
+  );
+  const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
+
+  const toggleCrossSection = useCallback((key: string) => {
+    setVisibleCrossSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  const toggleFilter = useCallback((which: "z1" | "z2") => {
+    setFilterOverlays((prev) => {
+      const next = new Set(prev);
+      if (next.has(which)) next.delete(which);
+      else next.add(which);
+      return next;
+    });
+  }, []);
 
   const data = useMemo(() => {
     if (!ready) return null;
@@ -99,6 +134,23 @@ function ElementDetailPage() {
     }
   }, [ready, z]);
 
+  // Available edges in priority order for the edge-of-interest selector
+  const orderedEdges = useMemo(() => {
+    if (!data) return [];
+    const available = data.edges.filter((e) => e.energy > 100);
+    return EDGE_PRIORITY.filter((label) =>
+      available.some((e) => e.label === label),
+    ).map((label) => available.find((e) => e.label === label)!);
+  }, [data]);
+
+  // Compute xRange based on selected edge
+  const edgeXRange = useMemo<[number, number] | undefined>(() => {
+    if (!selectedEdge || !data) return undefined;
+    const edgeData = data.edges.find((e) => e.label === selectedEdge);
+    if (!edgeData) return undefined;
+    return [Math.max(100, edgeData.energy * 0.5), edgeData.energy * 2.0];
+  }, [selectedEdge, data]);
+
   // Cross-section plot: element μ/ρ, filter element μ/ρ, fluorescence lines
   const crossSectionPlot = useMemo(() => {
     if (!ready || !data) return { traces: [] as PlotTrace[], annotations: [] as PlotAnnotation[] };
@@ -128,33 +180,24 @@ function ElementDetailPage() {
     const traces: PlotTrace[] = [];
     const annotations: PlotAnnotation[] = [];
 
-    // Element cross-section (total μ/ρ)
-    try {
-      const mu = mu_elam(info.symbol, energyArr, "total");
-      traces.push({
-        x: energies,
-        y: Array.from(mu),
-        name: `${info.symbol} μ/ρ (total)`,
-      });
-    } catch {
-      // skip
+    // Element cross-sections based on toggle state
+    for (const cs of CROSS_SECTION_TYPES) {
+      if (!visibleCrossSections.has(cs.key)) continue;
+      try {
+        const mu = mu_elam(info.symbol, energyArr, cs.key);
+        traces.push({
+          x: energies,
+          y: Array.from(mu),
+          name: `${info.symbol} μ/ρ (${cs.label.toLowerCase()})`,
+          line: cs.key === "total" ? undefined : { dash: cs.key === "photo" ? "dot" : "dashdot", width: 1.5 },
+        });
+      } catch {
+        // skip
+      }
     }
 
-    // Photo cross-section
-    try {
-      const mu = mu_elam(info.symbol, energyArr, "photo");
-      traces.push({
-        x: energies,
-        y: Array.from(mu),
-        name: `${info.symbol} μ/ρ (photo)`,
-        line: { dash: "dot", width: 1.5 },
-      });
-    } catch {
-      // skip
-    }
-
-    // Z-1 filter cross-section
-    if (filterZ1) {
+    // Z-1 filter cross-section (only when overlay is active)
+    if (filterOverlays.has("z1") && filterZ1) {
       try {
         const mu = mu_elam(filterZ1.symbol, energyArr, "total");
         traces.push({
@@ -173,8 +216,8 @@ function ElementDetailPage() {
       });
     }
 
-    // Z-2 filter cross-section
-    if (filterZ2) {
+    // Z-2 filter cross-section (only when overlay is active)
+    if (filterOverlays.has("z2") && filterZ2) {
       try {
         const mu = mu_elam(filterZ2.symbol, energyArr, "total");
         traces.push({
@@ -193,17 +236,18 @@ function ElementDetailPage() {
       });
     }
 
-    // Fluorescence emission lines as vertical markers
+    // Fluorescence emission lines as vertical markers (dashed green)
     const strongLines = lines.filter((l) => l.intensity > 0.01 && l.energy > 100);
     for (const line of strongLines.slice(0, 15)) {
       annotations.push({
         x: line.energy,
         text: line.label,
         color: "#22c55e",
+        dash: "dash",
       });
     }
 
-    // Edge annotations
+    // Edge annotations (dotted red)
     for (const edge of edges) {
       if (edge.energy > 100) {
         annotations.push({
@@ -215,7 +259,7 @@ function ElementDetailPage() {
     }
 
     return { traces, annotations };
-  }, [ready, data]);
+  }, [ready, data, visibleCrossSections, filterOverlays]);
 
   if (!ready) {
     return <LoadingState message="Loading element data..." />;
@@ -259,6 +303,65 @@ function ElementDetailPage() {
         </div>
       </div>
 
+      {/* Cross-section type toggles */}
+      <div className="mb-3 flex flex-wrap items-center gap-4">
+        <div className="flex flex-wrap gap-1">
+          <span className="mr-1 self-center text-xs text-muted-foreground">Cross-section:</span>
+          {CROSS_SECTION_TYPES.map((cs) => {
+            const active = visibleCrossSections.has(cs.key);
+            return (
+              <button
+                key={cs.key}
+                type="button"
+                onClick={() => toggleCrossSection(cs.key)}
+                aria-pressed={active}
+                className={`rounded px-3 py-1.5 text-xs font-medium ${
+                  active
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                }`}
+              >
+                {cs.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Edge of interest selector */}
+        {orderedEdges.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            <span className="mr-1 self-center text-xs text-muted-foreground">Edge focus:</span>
+            <button
+              type="button"
+              onClick={() => setSelectedEdge(null)}
+              aria-pressed={selectedEdge === null}
+              className={`rounded px-3 py-1.5 text-xs font-medium ${
+                selectedEdge === null
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+              }`}
+            >
+              Full Range
+            </button>
+            {orderedEdges.map((edge) => (
+              <button
+                key={edge.label}
+                type="button"
+                onClick={() => setSelectedEdge(edge.label)}
+                aria-pressed={selectedEdge === edge.label}
+                className={`rounded px-3 py-1.5 text-xs font-medium ${
+                  selectedEdge === edge.label
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                }`}
+              >
+                {edge.label} ({edge.energy.toFixed(0)} eV)
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Cross-section / Filter Plot */}
       {crossSectionPlot.traces.length > 0 && (
         <div className="mb-6">
@@ -271,6 +374,7 @@ function ElementDetailPage() {
             defaultLogX
             verticalLines={crossSectionPlot.annotations}
             height={400}
+            xRange={edgeXRange}
           />
         </div>
       )}
@@ -283,36 +387,44 @@ function ElementDetailPage() {
           </h2>
           <p className="mb-3 text-xs text-muted-foreground">
             Elements whose K-edge falls between the sample's fluorescence and
-            absorption edge, useful as Z-1 / Z-2 filters.
+            absorption edge, useful as Z-1 / Z-2 filters. Click to overlay on the plot.
           </p>
           <div className="flex flex-wrap gap-3">
             {filterZ1 && (
-              <Link
-                to="/element/$z"
-                params={{ z: String(filterZ1.z) }}
-                className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-2 hover:bg-primary/10"
+              <button
+                type="button"
+                onClick={() => toggleFilter("z1")}
+                className={`rounded-lg border px-4 py-2 ${
+                  filterOverlays.has("z1")
+                    ? "border-amber-500/50 bg-amber-500/15"
+                    : "border-primary/30 bg-primary/5 hover:bg-primary/10"
+                }`}
               >
-                <span className="text-sm font-semibold text-primary">
+                <span className={`text-sm font-semibold ${filterOverlays.has("z1") ? "text-amber-500" : "text-primary"}`}>
                   {filterZ1.symbol}
                 </span>
                 <span className="ml-2 text-xs text-muted-foreground">
                   Z-1 · K-edge: {filterZ1.kEdge.toFixed(1)} eV
                 </span>
-              </Link>
+              </button>
             )}
             {filterZ2 && (
-              <Link
-                to="/element/$z"
-                params={{ z: String(filterZ2.z) }}
-                className="rounded-lg border border-border bg-card px-4 py-2 hover:bg-accent/50"
+              <button
+                type="button"
+                onClick={() => toggleFilter("z2")}
+                className={`rounded-lg border px-4 py-2 ${
+                  filterOverlays.has("z2")
+                    ? "border-purple-400/50 bg-purple-400/15"
+                    : "border-border bg-card hover:bg-accent/50"
+                }`}
               >
-                <span className="text-sm font-semibold">
+                <span className={`text-sm font-semibold ${filterOverlays.has("z2") ? "text-purple-400" : ""}`}>
                   {filterZ2.symbol}
                 </span>
                 <span className="ml-2 text-xs text-muted-foreground">
                   Z-2 · K-edge: {filterZ2.kEdge.toFixed(1)} eV
                 </span>
-              </Link>
+              </button>
             )}
           </div>
         </div>

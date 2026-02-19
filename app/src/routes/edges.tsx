@@ -27,18 +27,8 @@ interface EdgeRow {
   jumpRatio: number;
 }
 
-const EDGE_FILTERS = [
-  "All",
-  "K",
-  "L1",
-  "L2",
-  "L3",
-  "M1",
-  "M2",
-  "M3",
-  "M4",
-  "M5",
-];
+const DEFAULT_EDGES = ["K", "L1", "L2", "L3"];
+const EXTRA_EDGES = ["M1", "M2", "M3", "M4", "M5"];
 
 type Harmonic = "fundamental" | "2nd" | "3rd";
 
@@ -50,8 +40,16 @@ function EdgeFinderPage() {
   const [sortBy, setSortBy] = useState<"energy" | "z">("energy");
   const [sortAsc, setSortAsc] = useState(true);
   const [harmonic, setHarmonic] = useState<Harmonic>("fundamental");
+  const [showExtraEdges, setShowExtraEdges] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const highlightRef = useRef<HTMLTableRowElement>(null);
+
+  // Reset edge filter if it was set to an extra edge when hiding extras
+  useEffect(() => {
+    if (!showExtraEdges && EXTRA_EDGES.includes(edgeFilter)) {
+      setEdgeFilter("All");
+    }
+  }, [showExtraEdges, edgeFilter]);
 
   // The effective search energy (adjusted for harmonics)
   const effectiveEnergy = useMemo(() => {
@@ -114,9 +112,20 @@ function EdgeFinderPage() {
     }
   }, [ready, effectiveEnergy]);
 
+  // Available edge filter options
+  const visibleEdgeFilters = useMemo(() => {
+    const base = ["All", ...DEFAULT_EDGES];
+    return showExtraEdges ? [...base, ...EXTRA_EDGES] : base;
+  }, [showExtraEdges]);
+
   // Filter and sort — show all edges, scroll to closest
   const filtered = useMemo(() => {
     let rows = allEdges;
+
+    // Pre-filter to default edges when extras are hidden
+    if (!showExtraEdges) {
+      rows = rows.filter((r) => DEFAULT_EDGES.includes(r.edge));
+    }
 
     if (edgeFilter !== "All") {
       rows = rows.filter((r) => r.edge === edgeFilter);
@@ -128,7 +137,7 @@ function EdgeFinderPage() {
     });
 
     return rows;
-  }, [allEdges, edgeFilter, sortBy, sortAsc]);
+  }, [allEdges, edgeFilter, sortBy, sortAsc, showExtraEdges]);
 
   // Find the index of the closest edge to the searched energy
   const closestIndex = useMemo(() => {
@@ -183,15 +192,16 @@ function EdgeFinderPage() {
 
   const edgePlotTraces: PlotTrace[] = useMemo(() => {
     if (filtered.length === 0) return [];
-    const byType = new Map<string, { x: number[]; y: number[] }>();
+    const byType = new Map<string, { x: number[]; y: number[]; text: string[] }>();
     for (const r of filtered) {
       let group = byType.get(r.edge);
       if (!group) {
-        group = { x: [], y: [] };
+        group = { x: [], y: [], text: [] };
         byType.set(r.edge, group);
       }
       group.x.push(r.energy);
       group.y.push(r.z);
+      group.text.push(`${r.element} ${r.edge} (${r.energy.toFixed(1)} eV)`);
     }
     const traces: PlotTrace[] = [];
     for (const [edge, data] of byType) {
@@ -201,6 +211,7 @@ function EdgeFinderPage() {
         name: edge,
         mode: "markers",
         line: { color: EDGE_COLORS[edge] ?? "#888" },
+        text: data.text,
       });
     }
     return traces;
@@ -241,7 +252,7 @@ function EdgeFinderPage() {
             onChange={(e) => setEdgeFilter(e.target.value)}
             className="rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           >
-            {EDGE_FILTERS.map((f) => (
+            {visibleEdgeFilters.map((f) => (
               <option key={f} value={f}>
                 {f}
               </option>
@@ -273,6 +284,18 @@ function EdgeFinderPage() {
             ))}
           </div>
         </div>
+
+        <button
+          type="button"
+          onClick={() => setShowExtraEdges(!showExtraEdges)}
+          className={`rounded px-3 py-2 text-sm ${
+            showExtraEdges
+              ? "bg-primary text-primary-foreground"
+              : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+          }`}
+        >
+          {showExtraEdges ? "Hide M/N/P Edges" : "Show M/N/P Edges"}
+        </button>
       </div>
 
       {guessResult && (

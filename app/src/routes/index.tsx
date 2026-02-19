@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useWasm } from "~/hooks/useWasm";
 import {
   all_elements,
@@ -13,7 +13,7 @@ import { energyRange } from "~/lib/constants";
 import { PeriodicTable } from "~/components/periodic-table/PeriodicTable";
 import type { ElementData } from "~/components/periodic-table/types";
 import { ScientificPlot } from "~/components/plot/ScientificPlot";
-import type { PlotTrace } from "~/components/plot/ScientificPlot";
+import type { PlotTrace, PlotAnnotation } from "~/components/plot/ScientificPlot";
 import { downloadCsv } from "~/lib/csv-export";
 import { LoadingState } from "~/components/ui/LoadingState";
 import { PageHeader } from "~/components/ui/PageHeader";
@@ -27,6 +27,23 @@ export const Route = createFileRoute("/")({
 function HomePage() {
   const ready = useWasm();
   const [selectedZ, setSelectedZ] = useState<number | null>(null);
+  const [filterOverlays, setFilterOverlays] = useState<Set<"z1" | "z2">>(
+    () => new Set(),
+  );
+
+  // Reset overlays when element changes
+  useEffect(() => {
+    setFilterOverlays(new Set());
+  }, [selectedZ]);
+
+  const toggleFilter = useCallback((which: "z1" | "z2") => {
+    setFilterOverlays((prev) => {
+      const next = new Set(prev);
+      if (next.has(which)) next.delete(which);
+      else next.add(which);
+      return next;
+    });
+  }, []);
 
   const elements: ElementData[] = useMemo(() => {
     if (!ready) return [];
@@ -99,31 +116,98 @@ function HomePage() {
     }
   }, [ready, selectedZ]);
 
-  // Attenuation plot for the summary panel
+  // Attenuation plot with filter overlays
   const attenuationPlot = useMemo<PlotTrace[]>(() => {
     if (!data || data.edges.length === 0) return [];
     try {
       const energies = energyRange(100, 40000, 50);
+      const energyArr = Array.from(energies);
+      const result: PlotTrace[] = [];
+
+      // Primary element
       const mu = mu_elam(data.info.symbol, energies, "total") as Float64Array;
-      return [
-        {
-          x: Array.from(energies),
-          y: Array.from(mu),
-          name: `${data.info.symbol} total`,
-        },
-      ];
+      result.push({
+        x: energyArr,
+        y: Array.from(mu),
+        name: `${data.info.symbol} total`,
+      });
+
+      // Z-1 filter overlay
+      if (filterOverlays.has("z1") && data.filterZ1) {
+        const fmu = mu_elam(data.filterZ1.symbol, energies, "total") as Float64Array;
+        result.push({
+          x: energyArr,
+          y: Array.from(fmu),
+          name: `${data.filterZ1.symbol} filter (Z-1)`,
+          line: { color: "#f59e0b", width: 2 },
+        });
+      }
+
+      // Z-2 filter overlay
+      if (filterOverlays.has("z2") && data.filterZ2) {
+        const fmu = mu_elam(data.filterZ2.symbol, energies, "total") as Float64Array;
+        result.push({
+          x: energyArr,
+          y: Array.from(fmu),
+          name: `${data.filterZ2.symbol} filter (Z-2)`,
+          line: { color: "#a78bfa", width: 2 },
+        });
+      }
+
+      return result;
     } catch {
       return [];
     }
-  }, [data]);
+  }, [data, filterOverlays]);
 
-  // Top fluorescence lines (sorted by intensity, top 5)
-  const topLines = useMemo(() => {
+  // Annotations: fluorescence lines (dashed green) + edges (dotted red) + filter edges
+  const attenuationAnnotations = useMemo<PlotAnnotation[]>(() => {
     if (!data) return [];
-    return [...data.lines]
+    const result: PlotAnnotation[] = [];
+
+    // Top fluorescence lines as dashed green vertical lines
+    const strongLines = [...data.lines]
       .sort((a, b) => b.intensity - a.intensity)
-      .slice(0, 5);
-  }, [data]);
+      .slice(0, 8)
+      .filter((l) => l.energy > 100);
+    for (const line of strongLines) {
+      result.push({
+        x: line.energy,
+        text: line.label,
+        color: "#22c55e",
+        dash: "dash",
+      });
+    }
+
+    // Edge annotations as dotted red vertical lines
+    for (const edge of data.edges) {
+      if (edge.energy > 100) {
+        result.push({
+          x: edge.energy,
+          text: `${data.info.symbol} ${edge.label}`,
+          color: "#ef4444",
+        });
+      }
+    }
+
+    // Filter K-edge annotations
+    if (filterOverlays.has("z1") && data.filterZ1) {
+      result.push({
+        x: data.filterZ1.kEdge,
+        text: `${data.filterZ1.symbol} K`,
+        color: "#f59e0b",
+      });
+    }
+    if (filterOverlays.has("z2") && data.filterZ2) {
+      result.push({
+        x: data.filterZ2.kEdge,
+        text: `${data.filterZ2.symbol} K`,
+        color: "#a78bfa",
+      });
+    }
+
+    return result;
+  }, [data, filterOverlays]);
 
   if (!ready) {
     return <LoadingState />;
@@ -168,7 +252,7 @@ function HomePage() {
               </div>
             </div>
 
-            {/* Attenuation card */}
+            {/* Attenuation card with fluorescence lines + edges integrated */}
             {attenuationPlot.length > 0 && (
               <div className="rounded-lg border border-border bg-card p-2">
                 <h3 className="mb-1 px-1 text-xs font-semibold text-muted-foreground">
@@ -182,29 +266,8 @@ function HomePage() {
                   defaultLogY
                   defaultLogX
                   showLogToggle={false}
+                  verticalLines={attenuationAnnotations}
                 />
-              </div>
-            )}
-
-            {/* Top fluorescence lines card */}
-            {topLines.length > 0 && (
-              <div className="rounded-lg border border-border bg-card p-3">
-                <h3 className="mb-2 text-xs font-semibold text-muted-foreground">
-                  Fluorescence Lines (top {topLines.length})
-                </h3>
-                <div className="space-y-1">
-                  {topLines.map((line) => (
-                    <div
-                      key={line.label}
-                      className="flex items-center justify-between text-sm"
-                    >
-                      <span className="font-medium">{line.label}</span>
-                      <span className="font-mono text-xs text-muted-foreground">
-                        {line.energy.toFixed(1)} eV
-                      </span>
-                    </div>
-                  ))}
-                </div>
               </div>
             )}
 
@@ -218,10 +281,14 @@ function HomePage() {
                   {data.filterZ1 && (
                     <button
                       type="button"
-                      onClick={() => setSelectedZ(data.filterZ1!.z)}
-                      className="flex-1 rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-sm hover:bg-primary/10"
+                      onClick={() => toggleFilter("z1")}
+                      className={`flex-1 rounded-lg border px-3 py-1.5 text-sm ${
+                        filterOverlays.has("z1")
+                          ? "border-amber-500/50 bg-amber-500/15"
+                          : "border-primary/30 bg-primary/5 hover:bg-primary/10"
+                      }`}
                     >
-                      <span className="font-semibold text-primary">
+                      <span className={`font-semibold ${filterOverlays.has("z1") ? "text-amber-500" : "text-primary"}`}>
                         {data.filterZ1.symbol}
                       </span>
                       <span className="ml-1 text-xs text-muted-foreground">
@@ -232,10 +299,14 @@ function HomePage() {
                   {data.filterZ2 && (
                     <button
                       type="button"
-                      onClick={() => setSelectedZ(data.filterZ2!.z)}
-                      className="flex-1 rounded-lg border border-border bg-card px-3 py-1.5 text-sm hover:bg-accent/50"
+                      onClick={() => toggleFilter("z2")}
+                      className={`flex-1 rounded-lg border px-3 py-1.5 text-sm ${
+                        filterOverlays.has("z2")
+                          ? "border-purple-400/50 bg-purple-400/15"
+                          : "border-border bg-card hover:bg-accent/50"
+                      }`}
                     >
-                      <span className="font-semibold">
+                      <span className={`font-semibold ${filterOverlays.has("z2") ? "text-purple-400" : ""}`}>
                         {data.filterZ2.symbol}
                       </span>
                       <span className="ml-1 text-xs text-muted-foreground">

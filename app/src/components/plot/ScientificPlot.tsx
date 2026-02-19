@@ -1,6 +1,7 @@
 import { useState, useMemo, lazy, Suspense } from "react";
 import type { Data, Layout, Config, ScatterLine } from "plotly.js";
 import { useIsMobile } from "~/hooks/useIsMobile";
+import { useTheme } from "~/lib/theme";
 
 const Plot = lazy(() => import("react-plotly.js"));
 
@@ -11,12 +12,14 @@ export interface PlotTrace {
   mode?: "lines" | "markers" | "lines+markers";
   line?: { dash?: ScatterLine["dash"]; width?: number; color?: string };
   yaxis?: "y" | "y2";
+  text?: string[];
 }
 
 export interface PlotAnnotation {
   x: number;
   text: string;
   color?: string;
+  dash?: "dot" | "dash" | "dashdot" | "solid";
 }
 
 interface ScientificPlotProps {
@@ -30,6 +33,7 @@ interface ScientificPlotProps {
   defaultLogY?: boolean;
   defaultLogX?: boolean;
   verticalLines?: PlotAnnotation[];
+  xRange?: [number, number];
 }
 
 export function ScientificPlot({
@@ -43,8 +47,10 @@ export function ScientificPlot({
   defaultLogY = false,
   defaultLogX = false,
   verticalLines,
+  xRange,
 }: ScientificPlotProps) {
   const isMobile = useIsMobile();
+  const { resolvedMode } = useTheme();
   const [logY, setLogY] = useState(defaultLogY);
   const [logX, setLogX] = useState(defaultLogX);
 
@@ -52,6 +58,29 @@ export function ScientificPlot({
   const plotMargin = isMobile
     ? { l: 50, r: yTitle2 ? 50 : 20, t: title ? 35 : 15, b: 45 }
     : { l: 70, r: yTitle2 ? 70 : 30, t: title ? 40 : 20, b: 60 };
+
+  const plotColors = useMemo(() => {
+    if (resolvedMode === "dark") {
+      return {
+        plotBg: "rgba(20,20,20,0.5)",
+        gridColor: "#333",
+        axisColor: "#888",
+        textColor: "#ccc",
+        titleColor: "#ccc",
+        axisTitleColor: "#aaa",
+        zerolineColor: "#444",
+      };
+    }
+    return {
+      plotBg: "rgba(245,245,245,0.8)",
+      gridColor: "#ddd",
+      axisColor: "#666",
+      textColor: "#333",
+      titleColor: "#222",
+      axisTitleColor: "#555",
+      zerolineColor: "#ccc",
+    };
+  }, [resolvedMode]);
 
   const data: Data[] = useMemo(
     () =>
@@ -63,6 +92,7 @@ export function ScientificPlot({
         mode: t.mode ?? "lines",
         line: t.line ?? { width: 2 },
         ...(t.yaxis ? { yaxis: t.yaxis } : {}),
+        ...(t.text ? { text: t.text, hoverinfo: "text" as const } : {}),
       })),
     [traces],
   );
@@ -76,7 +106,7 @@ export function ScientificPlot({
         yref: "paper" as const,
         y0: 0,
         y1: 1,
-        line: { color: vl.color ?? "#888", width: 1, dash: "dot" as const },
+        line: { color: vl.color ?? plotColors.axisColor, width: 1, dash: (vl.dash ?? "dot") as "dot" | "dash" | "dashdot" | "solid" },
       }));
       const annotations = verticalLines?.map((vl) => ({
         x: vl.x,
@@ -84,40 +114,48 @@ export function ScientificPlot({
         yref: "paper" as const,
         text: vl.text,
         showarrow: false,
-        font: { size: 10, color: vl.color ?? "#888" },
+        font: { size: 10, color: vl.color ?? plotColors.axisColor },
         yanchor: "bottom" as const,
       }));
+
+      const computedXRange = xRange
+        ? logX
+          ? [Math.log10(xRange[0]), Math.log10(xRange[1])]
+          : xRange
+        : undefined;
+
       return {
-        title: title ? { text: title, font: { size: 14, color: "#ccc" } } : undefined,
+        title: title ? { text: title, font: { size: 14, color: plotColors.titleColor } } : undefined,
         xaxis: {
-          title: { text: xTitle, font: { color: "#aaa" } },
+          title: { text: xTitle, font: { color: plotColors.axisTitleColor } },
           type: logX ? "log" : "linear",
-          color: "#888",
-          gridcolor: "#333",
-          zerolinecolor: "#444",
+          color: plotColors.axisColor,
+          gridcolor: plotColors.gridColor,
+          zerolinecolor: plotColors.zerolineColor,
+          ...(computedXRange ? { range: computedXRange } : {}),
         },
         yaxis: {
-          title: { text: yTitle, font: { color: "#aaa" } },
+          title: { text: yTitle, font: { color: plotColors.axisTitleColor } },
           type: logY ? "log" : "linear",
-          color: "#888",
-          gridcolor: "#333",
-          zerolinecolor: "#444",
+          color: plotColors.axisColor,
+          gridcolor: plotColors.gridColor,
+          zerolinecolor: plotColors.zerolineColor,
         },
         ...(yTitle2 ? {
           yaxis2: {
-            title: { text: yTitle2, font: { color: "#aaa" } },
+            title: { text: yTitle2, font: { color: plotColors.axisTitleColor } },
             type: logY ? "log" : "linear",
-            color: "#888",
+            color: plotColors.axisColor,
             overlaying: "y" as const,
             side: "right" as const,
             gridcolor: "transparent",
           },
         } : {}),
         paper_bgcolor: "transparent",
-        plot_bgcolor: "rgba(20,20,20,0.5)",
-        font: { color: "#ccc" },
+        plot_bgcolor: plotColors.plotBg,
+        font: { color: plotColors.textColor },
         legend: {
-          font: { color: "#ccc" },
+          font: { color: plotColors.textColor },
           bgcolor: "transparent",
         },
         margin: plotMargin,
@@ -127,13 +165,14 @@ export function ScientificPlot({
         annotations,
       };
     },
-    [xTitle, yTitle, yTitle2, title, logX, logY, effectiveHeight, plotMargin, verticalLines],
+    [xTitle, yTitle, yTitle2, title, logX, logY, effectiveHeight, plotMargin, verticalLines, plotColors, xRange],
   );
 
   const config: Partial<Config> = useMemo(
     () => ({
       responsive: true,
       displayModeBar: true,
+      displaylogo: false,
       modeBarButtonsToRemove: [
         "select2d",
         "lasso2d",

@@ -26,7 +26,8 @@ interface LineRow {
   finalLevel: string;
 }
 
-const LINE_FAMILIES = ["All", "Ka", "Kb", "La", "Lb", "Lg", "Ma", "Mb"];
+const DEFAULT_LINE_FAMILIES = ["Ka", "Kb", "La", "Lb"];
+const EXTRA_LINE_FAMILIES = ["Lg", "Ma", "Mb"];
 
 function LineFinderPage() {
   const ready = useWasm();
@@ -35,8 +36,22 @@ function LineFinderPage() {
   const [familyFilter, setFamilyFilter] = useState("All");
   const [sortBy, setSortBy] = useState<"energy" | "intensity">("energy");
   const [sortAsc, setSortAsc] = useState(true);
+  const [showExtraFamilies, setShowExtraFamilies] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const highlightRef = useRef<HTMLTableRowElement>(null);
+
+  // Reset family filter if it was set to an extra family when hiding extras
+  useEffect(() => {
+    if (!showExtraFamilies && EXTRA_LINE_FAMILIES.includes(familyFilter)) {
+      setFamilyFilter("All");
+    }
+  }, [showExtraFamilies, familyFilter]);
+
+  // Available family filter options
+  const visibleFamilyFilters = useMemo(() => {
+    const base = ["All", ...DEFAULT_LINE_FAMILIES];
+    return showExtraFamilies ? [...base, ...EXTRA_LINE_FAMILIES] : base;
+  }, [showExtraFamilies]);
 
   // Build full emission line database
   const allLines: LineRow[] = useMemo(() => {
@@ -78,6 +93,13 @@ function LineFinderPage() {
   const filtered = useMemo(() => {
     let rows = allLines;
 
+    // Pre-filter to default families when extras are hidden
+    if (!showExtraFamilies) {
+      rows = rows.filter((r) =>
+        DEFAULT_LINE_FAMILIES.some((f) => r.line.startsWith(f)),
+      );
+    }
+
     if (familyFilter !== "All") {
       rows = rows.filter((r) => r.line.startsWith(familyFilter));
     }
@@ -91,7 +113,7 @@ function LineFinderPage() {
     });
 
     return rows;
-  }, [allLines, familyFilter, sortBy, sortAsc]);
+  }, [allLines, familyFilter, sortBy, sortAsc, showExtraFamilies]);
 
   // Find the index of the closest line to the searched energy
   const closestIndex = useMemo(() => {
@@ -163,13 +185,25 @@ function LineFinderPage() {
             onChange={(e) => setFamilyFilter(e.target.value)}
             className="rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           >
-            {LINE_FAMILIES.map((f) => (
+            {visibleFamilyFilters.map((f) => (
               <option key={f} value={f}>
                 {f}
               </option>
             ))}
           </select>
         </div>
+
+        <button
+          type="button"
+          onClick={() => setShowExtraFamilies(!showExtraFamilies)}
+          className={`rounded px-3 py-2 text-sm ${
+            showExtraFamilies
+              ? "bg-primary text-primary-foreground"
+              : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+          }`}
+        >
+          {showExtraFamilies ? "Hide Lg/M Lines" : "Show Lg/M Lines"}
+        </button>
       </div>
 
       {closestIndex >= 0 && filtered[closestIndex] && (
