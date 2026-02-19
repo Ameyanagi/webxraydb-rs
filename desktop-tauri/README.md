@@ -49,6 +49,25 @@ Desktop releases are published by tag via GitHub Actions.
   (for example `.AppImage`, `.deb`, `.rpm`, `.dmg`, `.app.tar.gz`, `.exe`, `.msi`, and a Windows portable `.exe` when available)
 
 macOS note:
-- The release workflow re-signs the generated `.app` before packaging.
-- Without Apple Developer notarization, Gatekeeper may still block first launch on downloaded artifacts.
+- If GitHub secrets for Apple signing/notarization are configured, the release workflow signs and notarizes macOS artifacts.
+- If those secrets are missing, the workflow falls back to ad-hoc signing for local/test distribution only.
+- Without Apple notarization, Gatekeeper may still block first launch on downloaded artifacts.
 - Local override command: `xattr -dr com.apple.quarantine /Applications/WebXrayDB.app`
+
+### Enable Apple Notarization in GitHub Actions
+
+Add these repository secrets:
+
+- `APPLE_CERTIFICATE`: base64 of your `Developer ID Application` certificate `.p12`
+- `APPLE_CERTIFICATE_PASSWORD`: password for the `.p12`
+- `KEYCHAIN_PASSWORD`: temporary keychain password for CI
+- `APPLE_ID`: Apple ID email used for notarization
+- `APPLE_PASSWORD`: app-specific password for the Apple ID
+- `APPLE_TEAM_ID`: your Apple Developer Team ID
+- `APPLE_SIGNING_IDENTITY` (optional): explicit signing identity, e.g. `Developer ID Application: Your Name (TEAMID)`
+
+Create `APPLE_CERTIFICATE` value:
+
+```bash
+base64 -i developer-id-application.p12 | pbcopy
+```

@@ -51,12 +51,61 @@ jobs:
         working-directory: desktop-tauri
         run: bun install --frozen-lockfile
 
-      - name: Build desktop bundles
+      - name: Import Apple signing certificate
+        if: matrix.os == 'macos-latest' && secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.KEYCHAIN_PASSWORD != '' && secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' && secrets.APPLE_TEAM_ID != ''
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          keychain_path="$RUNNER_TEMP/app-signing.keychain-db"
+          cert_path="$RUNNER_TEMP/apple-signing-cert.p12"
+
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$cert_path"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain_path"
+          security import "$cert_path" \
+            -k "$keychain_path" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "$KEYCHAIN_PASSWORD" \
+            "$keychain_path"
+          security list-keychains -d user -s "$keychain_path" login.keychain-db
+          security default-keychain -s "$keychain_path"
+          security find-identity -v -p codesigning "$keychain_path"
+
+      - name: Build desktop bundles (macOS notarized)
+        if: matrix.os == 'macos-latest' && secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.KEYCHAIN_PASSWORD != '' && secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' && secrets.APPLE_TEAM_ID != ''
+        working-directory: desktop-tauri
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: bun run build
+
+      - name: Build desktop bundles (macOS fallback)
+        if: matrix.os == 'macos-latest' && (secrets.APPLE_CERTIFICATE == '' || secrets.APPLE_CERTIFICATE_PASSWORD == '' || secrets.KEYCHAIN_PASSWORD == '' || secrets.APPLE_ID == '' || secrets.APPLE_PASSWORD == '' || secrets.APPLE_TEAM_ID == '')
+        working-directory: desktop-tauri
+        run: bun run build
+
+      - name: Build desktop bundles (Linux/Windows)
+        if: matrix.os != 'macos-latest'
         working-directory: desktop-tauri
         run: bun run build
 
       - name: Collect release installers (macOS/Linux)
         if: matrix.os != 'windows-latest'
+        env:
+          MACOS_NOTARIZATION_ENABLED: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.KEYCHAIN_PASSWORD != '' && secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
         run: |
           set -euo pipefail
 
@@ -64,36 +113,51 @@ jobs:
           bundle_dir=desktop-tauri/src-tauri/target/release/bundle
           mkdir -p "$out_dir"
 
-          # Build macOS portable/app artifacts from a freshly signed .app bundle.
+          # Build macOS portable/app artifacts. When notarization secrets are configured,
+          # we keep the Tauri-produced signed/notarized dmg untouched.
           if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+            notarization_enabled="${MACOS_NOTARIZATION_ENABLED}"
+
             while IFS= read -r -d '' app_dir; do
               app_name="$(basename "$app_dir")"
               app_base="${app_name%.app}"
               app_parent="$(dirname "$app_dir")"
 
-              # Re-sign app bundle to avoid invalid bundle signature in distributed archives.
-              codesign --force --deep --sign - "$app_dir"
+              # Fallback ad-hoc signing when notarization is not configured.
+              if [[ "$notarization_enabled" != "true" ]]; then
+                codesign --force --deep --sign - "$app_dir"
+              fi
               codesign --verify --deep --strict --verbose=2 "$app_dir"
 
               # Portable mac app archive.
               tar -czf "$out_dir/${app_base}.app.tar.gz" -C "$app_parent" "$app_name"
 
-              # macOS disk image created from the signed app bundle.
-              app_arch="$(file "$app_dir/Contents/MacOS/webxraydb-desktop" | awk -F'[(), ]+' '{for (i=1;i<=NF;i++) if ($i ~ /^arm64$|^x86_64$/) {print $i; exit}}')"
-              if [[ -z "$app_arch" ]]; then
-                app_arch="unknown"
+              # If notarization is disabled, create a dmg from the app bundle.
+              if [[ "$notarization_enabled" != "true" ]]; then
+                app_arch="$(file "$app_dir/Contents/MacOS/webxraydb-desktop" | awk -F'[(), ]+' '{for (i=1;i<=NF;i++) if ($i ~ /^arm64$|^x86_64$/) {print $i; exit}}')"
+                if [[ -z "$app_arch" ]]; then
+                  app_arch="unknown"
+                fi
+                hdiutil create \
+                  -volname "$app_base" \
+                  -srcfolder "$app_dir" \
+                  -ov \
+                  -format UDZO \
+                  "$out_dir/${app_base}_${app_arch}.dmg"
               fi
-              hdiutil create \
-                -volname "$app_base" \
-                -srcfolder "$app_dir" \
-                -ov \
-                -format UDZO \
-                "$out_dir/${app_base}_${app_arch}.dmg"
             done < <(find "$bundle_dir" -type d -name '*.app' -print0)
 
             if ! ls "$out_dir"/*.app.tar.gz >/dev/null 2>&1; then
               echo "No macOS .app bundle found in $bundle_dir"
               exit 1
+            fi
+
+            if [[ "$notarization_enabled" == "true" ]]; then
+              find "$bundle_dir" -type f -name '*.dmg' -exec cp {} "$out_dir"/ \;
+              if ! ls "$out_dir"/*.dmg >/dev/null 2>&1; then
+                echo "No macOS dmg found in $bundle_dir"
+                exit 1
+              fi
             fi
           else
             find "$bundle_dir" -type f \
