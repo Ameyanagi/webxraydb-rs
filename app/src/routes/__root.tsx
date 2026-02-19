@@ -5,7 +5,7 @@ import {
   Scripts,
   createRootRoute,
 } from "@tanstack/react-router";
-import { useState, useEffect, useCallback, useContext, type ReactNode } from "react";
+import { useState, useEffect, useCallback, useContext, useRef, type ReactNode } from "react";
 import appCss from "~/styles/app.css?url";
 import {
   ThemeContext,
@@ -76,50 +76,77 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 function ThemeControlsInner() {
-  const { mode, preset, setMode, setPreset } = useContext(ThemeContext);
+  const { resolvedMode, preset, setMode, setPreset } = useContext(ThemeContext);
+  const [dropupOpen, setDropupOpen] = useState(false);
+  const dropupRef = useRef<HTMLDivElement>(null);
+
+  // Close dropup when clicking outside
+  useEffect(() => {
+    if (!dropupOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (dropupRef.current && !dropupRef.current.contains(e.target as Node)) {
+        setDropupOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [dropupOpen]);
+
+  const currentTheme = THEME_OPTIONS.find((t) => t.value === preset) ?? THEME_OPTIONS[0];
 
   return (
-    <div className="space-y-3 border-t border-border pt-3">
-      {/* Mode toggle — icon + label */}
-      <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
-        {(["light", "dark", "system"] as ThemeMode[]).map((m) => (
-          <button
-            key={m}
-            type="button"
-            onClick={() => setMode(m)}
-            className={`flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-medium transition-colors ${
-              mode === m
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {m === "light" ? (
-              <SunIcon />
-            ) : m === "dark" ? (
-              <MoonIcon />
-            ) : (
-              <SystemIcon />
-            )}
-            <span className="capitalize">{m}</span>
-          </button>
-        ))}
-      </div>
-      {/* Theme preset */}
-      <div className="flex items-center gap-1.5">
-        {THEME_OPTIONS.map((t) => (
-          <button
-            key={t.value}
-            type="button"
-            onClick={() => setPreset(t.value)}
-            title={t.label}
-            className={`h-5 w-5 rounded-full border-2 transition-transform ${
-              preset === t.value
-                ? "scale-110 border-foreground"
-                : "border-transparent hover:scale-105"
-            }`}
-            style={{ backgroundColor: t.hue }}
+    <div className="flex items-center gap-2 border-t border-border pt-3">
+      {/* Dark/light toggle icon */}
+      <button
+        type="button"
+        onClick={() => setMode(resolvedMode === "dark" ? "light" : "dark")}
+        className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+        title={resolvedMode === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+      >
+        {resolvedMode === "dark" ? <SunIcon /> : <MoonIcon />}
+      </button>
+
+      {/* Theme dropup */}
+      <div className="relative flex-1" ref={dropupRef}>
+        <button
+          type="button"
+          onClick={() => setDropupOpen(!dropupOpen)}
+          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+        >
+          <span
+            className="inline-block h-3 w-3 shrink-0 rounded-full"
+            style={{ backgroundColor: currentTheme.hue }}
           />
-        ))}
+          <span className="truncate">{currentTheme.label}</span>
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" className="ml-auto shrink-0 rotate-180">
+            <path d="M2 6.5 L5 3.5 L8 6.5" />
+          </svg>
+        </button>
+        {dropupOpen && (
+          <div className="absolute bottom-full left-0 right-0 mb-1 rounded-md border border-border bg-popover py-1 shadow-lg">
+            {THEME_OPTIONS.map((t) => (
+              <button
+                key={t.value}
+                type="button"
+                onClick={() => {
+                  setPreset(t.value);
+                  setDropupOpen(false);
+                }}
+                className={`flex w-full items-center gap-2 px-3 py-1.5 text-xs ${
+                  preset === t.value
+                    ? "bg-accent text-accent-foreground"
+                    : "text-popover-foreground hover:bg-accent/50"
+                }`}
+              >
+                <span
+                  className="inline-block h-3 w-3 shrink-0 rounded-full"
+                  style={{ backgroundColor: t.hue }}
+                />
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -149,15 +176,6 @@ function MoonIcon() {
   );
 }
 
-function SystemIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="mx-auto">
-      <rect x="2" y="3" width="20" height="14" rx="2" />
-      <line x1="8" y1="21" x2="16" y2="21" />
-      <line x1="12" y1="17" x2="12" y2="21" />
-    </svg>
-  );
-}
 
 function RootDocument({ children }: { children: ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
