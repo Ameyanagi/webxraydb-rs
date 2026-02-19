@@ -99,7 +99,9 @@ jobs:
           security find-identity -v -p codesigning "$keychain_path"
 
       - name: Build desktop bundles (macOS notarized)
+        id: build_macos_notarized
         if: matrix.os == 'macos-latest' && steps.mac_notarization.outputs.enabled == 'true'
+        continue-on-error: true
         working-directory: desktop-tauri
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -110,7 +112,7 @@ jobs:
         run: bun run build
 
       - name: Build desktop bundles (macOS fallback)
-        if: matrix.os == 'macos-latest' && steps.mac_notarization.outputs.enabled != 'true'
+        if: matrix.os == 'macos-latest' && (steps.mac_notarization.outputs.enabled != 'true' || steps.build_macos_notarized.outcome != 'success')
         working-directory: desktop-tauri
         run: bun run build
 
@@ -123,6 +125,7 @@ jobs:
         if: matrix.os != 'windows-latest'
         env:
           MACOS_NOTARIZATION_ENABLED: ${{ steps.mac_notarization.outputs.enabled || 'false' }}
+          MACOS_NOTARIZATION_OUTCOME: ${{ steps.build_macos_notarized.outcome || 'skipped' }}
         run: |
           set -euo pipefail
 
@@ -133,7 +136,10 @@ jobs:
           # Build macOS portable/app artifacts. When notarization secrets are configured,
           # we keep the Tauri-produced signed/notarized dmg untouched.
           if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
-            notarization_enabled="${MACOS_NOTARIZATION_ENABLED}"
+            notarization_enabled="false"
+            if [[ "${MACOS_NOTARIZATION_ENABLED}" == "true" && "${MACOS_NOTARIZATION_OUTCOME}" == "success" ]]; then
+              notarization_enabled="true"
+            fi
 
             while IFS= read -r -d '' app_dir; do
               app_name="$(basename "$app_dir")"
