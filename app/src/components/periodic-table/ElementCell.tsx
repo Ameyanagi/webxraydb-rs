@@ -25,10 +25,10 @@ export function ElementCell({ element, selected, onClick }: ElementCellProps) {
       }`}
       title={`${element.name} (${element.symbol}) Z=${element.z}`}
     >
-      <span className="text-[7px] leading-tight text-muted-foreground sm:text-[9px]">
+      <span className="hidden text-muted-foreground sm:block sm:text-[9px] sm:leading-tight">
         {element.z}
       </span>
-      <span className="text-[10px] font-bold leading-tight sm:text-xs">{element.symbol}</span>
+      <span className="text-[8px] font-bold leading-none sm:text-xs sm:leading-tight">{element.symbol}</span>
     </button>
   );
 }

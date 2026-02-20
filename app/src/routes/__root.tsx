@@ -4,6 +4,7 @@ import {
   Link,
   Scripts,
   createRootRoute,
+  useRouterState,
 } from "@tanstack/react-router";
 import { useState, useEffect, useCallback, useContext, useRef, type ReactNode } from "react";
 import appCss from "~/styles/app.css?url";
@@ -22,7 +23,7 @@ export const Route = createRootRoute({
   head: () => ({
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
+      { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
       { title: "webxraydb-rs — X-ray Analysis Tools" },
       {
         name: "description",
@@ -177,8 +178,22 @@ function MoonIcon() {
 }
 
 
+function MobileHeaderTitle() {
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const label = navItems.find((item) => {
+    if (item.to === "/") return pathname === "/";
+    return pathname.startsWith(item.to);
+  })?.label;
+  return (
+    <span className="truncate text-sm font-bold text-foreground">
+      {label ?? "webxraydb-rs"}
+    </span>
+  );
+}
+
 function RootDocument({ children }: { children: ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [drawerVisible, setDrawerVisible] = useState(false);
   const [mode, setModeState] = useState<ThemeMode>(() => loadSavedMode());
   const [preset, setPresetState] = useState<ThemePreset>(() => loadSavedPreset());
   const [resolvedModeVal, setResolvedMode] = useState<"light" | "dark">(() =>
@@ -223,6 +238,21 @@ function RootDocument({ children }: { children: ReactNode }) {
     return () => mq.removeEventListener("change", handler);
   }, [mode]);
 
+  // Mount drawer DOM before animating open
+  useEffect(() => {
+    if (menuOpen) setDrawerVisible(true);
+  }, [menuOpen]);
+
+  // Lock body scroll when drawer is open
+  useEffect(() => {
+    if (menuOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => { document.body.style.overflow = ""; };
+  }, [menuOpen]);
+
   const themeValue = {
     mode,
     preset,
@@ -254,11 +284,14 @@ function RootDocument({ children }: { children: ReactNode }) {
             </nav>
 
             {/* Mobile header */}
-            <div className="fixed top-0 left-0 right-0 z-40 flex items-center gap-3 border-b border-border bg-card px-4 py-3 md:hidden">
+            <div
+              className="fixed top-0 left-0 right-0 z-40 flex items-center gap-3 border-b border-border bg-card px-4 py-3 md:hidden"
+              style={{ paddingTop: "max(env(safe-area-inset-top, 0px), 0.75rem)" }}
+            >
               <button
                 type="button"
                 onClick={() => setMenuOpen(true)}
-                className="flex h-10 w-10 items-center justify-center rounded-md hover:bg-accent"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md hover:bg-accent"
                 aria-label="Open menu"
               >
                 <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -267,21 +300,29 @@ function RootDocument({ children }: { children: ReactNode }) {
                   <line x1="3" y1="15" x2="17" y2="15" />
                 </svg>
               </button>
-              <Link to="/" className="text-sm font-bold text-foreground">
-                webxraydb-rs
-              </Link>
+              <MobileHeaderTitle />
             </div>
 
-            {/* Mobile overlay nav */}
-            {menuOpen && (
+            {/* Mobile overlay nav — animated */}
+            {drawerVisible && (
               <div className="fixed inset-0 z-50 md:hidden">
-                {/* Backdrop */}
+                {/* Backdrop with fade */}
                 <div
-                  className="absolute inset-0 bg-black/60"
+                  className={`absolute inset-0 bg-black/60 transition-opacity duration-200 ${
+                    menuOpen ? "opacity-100" : "opacity-0"
+                  }`}
                   onClick={() => setMenuOpen(false)}
                 />
-                {/* Drawer */}
-                <nav className="absolute top-0 left-0 bottom-0 flex w-64 flex-col bg-card p-4 shadow-xl">
+                {/* Drawer with slide */}
+                <nav
+                  className={`absolute top-0 left-0 bottom-0 flex w-64 flex-col bg-card p-4 shadow-xl transition-transform duration-200 ease-out ${
+                    menuOpen ? "translate-x-0" : "-translate-x-full"
+                  }`}
+                  style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 1rem)" }}
+                  onTransitionEnd={() => {
+                    if (!menuOpen) setDrawerVisible(false);
+                  }}
+                >
                   <div className="mb-6 flex items-center justify-between">
                     <Link
                       to="/"
@@ -310,7 +351,7 @@ function RootDocument({ children }: { children: ReactNode }) {
               </div>
             )}
 
-            <main className="flex-1 p-4 pt-16 md:p-6 md:pt-6 max-w-7xl">
+            <main className="flex-1 p-4 pt-14 md:p-6 md:pt-6 max-w-7xl">
               {children}
             </main>
           </div>

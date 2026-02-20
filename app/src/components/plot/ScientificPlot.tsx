@@ -171,43 +171,48 @@ export function ScientificPlot({
   const config: Partial<Config> = useMemo(
     () => ({
       responsive: true,
-      displayModeBar: true,
+      displayModeBar: !isMobile,
       displaylogo: false,
       modeBarButtonsToRemove: [
         "select2d",
         "lasso2d",
         "autoScale2d",
       ],
+      scrollZoom: false,
       toImageButtonOptions: {
         format: "svg",
         filename: title ?? "plot",
       },
     }),
-    [title],
+    [title, isMobile],
   );
 
   return (
     <div className="rounded-lg border border-border bg-card">
       {showLogToggle && (
-        <div className="flex items-center gap-4 border-b border-border px-4 py-2">
-          <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            <input
-              type="checkbox"
-              checked={logX}
-              onChange={(e) => setLogX(e.target.checked)}
-              className="rounded"
-            />
+        <div className="flex items-center gap-2 border-b border-border px-4 py-2">
+          <button
+            type="button"
+            onClick={() => setLogX(!logX)}
+            className={`rounded px-3 py-1.5 text-xs font-medium ${
+              logX
+                ? "bg-primary text-primary-foreground"
+                : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+            }`}
+          >
             Log X
-          </label>
-          <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            <input
-              type="checkbox"
-              checked={logY}
-              onChange={(e) => setLogY(e.target.checked)}
-              className="rounded"
-            />
+          </button>
+          <button
+            type="button"
+            onClick={() => setLogY(!logY)}
+            className={`rounded px-3 py-1.5 text-xs font-medium ${
+              logY
+                ? "bg-primary text-primary-foreground"
+                : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+            }`}
+          >
             Log Y
-          </label>
+          </button>
         </div>
       )}
       <Suspense

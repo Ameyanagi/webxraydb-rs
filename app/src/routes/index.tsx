@@ -17,6 +17,7 @@ import type { PlotTrace, PlotAnnotation } from "~/components/plot/ScientificPlot
 import { downloadCsv } from "~/lib/csv-export";
 import { LoadingState } from "~/components/ui/LoadingState";
 import { PageHeader } from "~/components/ui/PageHeader";
+import { ScrollableTable } from "~/components/ui/ScrollableTable";
 
 const HC_ANGSTROM = 12398.4;
 
@@ -314,7 +315,7 @@ function HomePage() {
                       <button
                         type="button"
                         onClick={() => setSelectedEdge(null)}
-                        className={`rounded px-2 py-0.5 text-[10px] font-medium ${
+                        className={`rounded px-2.5 py-1.5 text-xs font-medium ${
                           selectedEdge === null
                             ? "bg-primary text-primary-foreground"
                             : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
@@ -327,7 +328,7 @@ function HomePage() {
                           key={edge.label}
                           type="button"
                           onClick={() => setSelectedEdge(edge.label)}
-                          className={`rounded px-2 py-0.5 text-[10px] font-medium ${
+                          className={`rounded px-2.5 py-1.5 text-xs font-medium ${
                             selectedEdge === edge.label
                               ? "bg-primary text-primary-foreground"
                               : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
@@ -444,7 +445,7 @@ function HomePage() {
               {data.edges.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No edge data.</p>
               ) : (
-                <div className="overflow-x-auto">
+                <ScrollableTable>
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-border text-left text-muted-foreground">
@@ -486,7 +487,7 @@ function HomePage() {
                       ))}
                     </tbody>
                   </table>
-                </div>
+                </ScrollableTable>
               )}
             </div>
 
@@ -529,7 +530,7 @@ function HomePage() {
               {data.lines.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No line data.</p>
               ) : (
-                <div className="max-h-80 overflow-y-auto overflow-x-auto">
+                <ScrollableTable className="max-h-80 overflow-y-auto">
                   <table className="w-full text-sm">
                     <thead className="sticky top-0 bg-card">
                       <tr className="border-b border-border text-left text-muted-foreground">
@@ -569,7 +570,7 @@ function HomePage() {
                       ))}
                     </tbody>
                   </table>
-                </div>
+                </ScrollableTable>
               )}
             </div>
 

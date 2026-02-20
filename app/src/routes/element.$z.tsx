@@ -16,6 +16,7 @@ import type {
 } from "~/components/plot/ScientificPlot";
 import { LoadingState } from "~/components/ui/LoadingState";
 import { EmptyState } from "~/components/ui/EmptyState";
+import { ScrollableTable } from "~/components/ui/ScrollableTable";
 
 export const Route = createFileRoute("/element/$z")({
   component: ElementDetailPage,
@@ -480,7 +481,7 @@ function ElementDetailPage() {
           {edges.length === 0 ? (
             <p className="text-sm text-muted-foreground">No edge data.</p>
           ) : (
-            <div className="overflow-x-auto">
+            <ScrollableTable>
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border text-left text-muted-foreground">
@@ -516,7 +517,7 @@ function ElementDetailPage() {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </ScrollableTable>
           )}
         </div>
 
@@ -559,7 +560,7 @@ function ElementDetailPage() {
           {lines.length === 0 ? (
             <p className="text-sm text-muted-foreground">No line data.</p>
           ) : (
-            <div className="max-h-96 overflow-y-auto overflow-x-auto">
+            <ScrollableTable className="max-h-96 overflow-y-auto">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-card">
                   <tr className="border-b border-border text-left text-muted-foreground">
@@ -595,7 +596,7 @@ function ElementDetailPage() {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </ScrollableTable>
           )}
         </div>
 

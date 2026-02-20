@@ -26,16 +26,16 @@ export function PeriodicTable({
   // Grid dimensions: 18 cols, 10 rows (7 main + gap + 2 f-block)
   const rows = 10;
   const cols = 18;
-  const cellMin = isMobile ? "1.5rem" : "2.5rem";
-  const cellHeight = isMobile ? "1.8rem" : "2.5rem";
 
   return (
-    <div className="overflow-x-auto">
+    <div className={isMobile ? "" : "overflow-x-auto"}>
       <div
-        className="inline-grid gap-0.5"
+        className={isMobile ? "grid gap-px" : "inline-grid gap-0.5"}
         style={{
-          gridTemplateColumns: `repeat(${cols}, minmax(${cellMin}, 1fr))`,
-          gridTemplateRows: `repeat(${rows}, ${cellHeight})`,
+          gridTemplateColumns: isMobile
+            ? `repeat(${cols}, 1fr)`
+            : `repeat(${cols}, minmax(2.5rem, 1fr))`,
+          gridTemplateRows: `repeat(${rows}, ${isMobile ? "1.5rem" : "2.5rem"})`,
         }}
       >
         {PERIODIC_TABLE_LAYOUT.map(([row, col, z]) => {
