@@ -228,21 +228,27 @@ function HomePage() {
     }
   }, [data, filterOverlays, plotEnergies]);
 
-  // Compute tight y-range from trace data
+  // Compute tight y-range from trace data within visible x-range
   const plotYRange = useMemo<[number, number] | undefined>(() => {
     if (attenuationPlot.length === 0) return undefined;
+    const xLo = plotEnergyRange?.xRange?.[0] ?? -Infinity;
+    const xHi = plotEnergyRange?.xRange?.[1] ?? Infinity;
     let yMin = Infinity;
     let yMax = -Infinity;
     for (const trace of attenuationPlot) {
-      for (const v of trace.y) {
-        if (v > 0 && v < yMin) yMin = v;
-        if (v > yMax) yMax = v;
+      for (let i = 0; i < trace.x.length; i++) {
+        const x = trace.x[i];
+        const v = trace.y[i];
+        if (x >= xLo && x <= xHi && v > 0) {
+          if (v < yMin) yMin = v;
+          if (v > yMax) yMax = v;
+        }
       }
     }
     if (!isFinite(yMin) || !isFinite(yMax)) return undefined;
     // Add half a decade of padding on log scale
     return [yMin / 2, yMax * 3];
-  }, [attenuationPlot]);
+  }, [attenuationPlot, plotEnergyRange]);
 
   // Emission line annotations only (no edge lines)
   const emissionAnnotations = useMemo<PlotAnnotation[]>(() => {
