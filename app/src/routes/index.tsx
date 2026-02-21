@@ -13,7 +13,7 @@ import {
 import { PeriodicTable } from "~/components/periodic-table/PeriodicTable";
 import type { ElementData } from "~/components/periodic-table/types";
 import { ScientificPlot } from "~/components/plot/ScientificPlot";
-import type { PlotTrace, PlotAnnotation } from "~/components/plot/ScientificPlot";
+import type { PlotTrace } from "~/components/plot/ScientificPlot";
 import { downloadCsv } from "~/lib/csv-export";
 import { LoadingState } from "~/components/ui/LoadingState";
 import { PageHeader } from "~/components/ui/PageHeader";
@@ -205,60 +205,6 @@ function HomePage() {
     }
   }, [data, filterOverlays, plotEnergyRange]);
 
-  // Annotations: fluorescence lines (dashed green) + edges (dotted red) + filter edges
-  // Only include annotations within the visible energy range
-  const attenuationAnnotations = useMemo<PlotAnnotation[]>(() => {
-    if (!data || !plotEnergyRange) return [];
-    const result: PlotAnnotation[] = [];
-
-    // Determine visible range for filtering annotations
-    const visRange = plotEnergyRange.xRange ?? [plotEnergyRange.eStart, plotEnergyRange.eEnd];
-    const inRange = (e: number) => e >= visRange[0] * 0.9 && e <= visRange[1] * 1.1;
-
-    // Top fluorescence lines as dashed green vertical lines
-    const strongLines = [...data.lines]
-      .sort((a, b) => b.intensity - a.intensity)
-      .slice(0, 8)
-      .filter((l) => l.energy > 100 && inRange(l.energy));
-    for (const line of strongLines) {
-      result.push({
-        x: line.energy,
-        text: line.label,
-        color: "#22c55e",
-        dash: "dash",
-      });
-    }
-
-    // Edge annotations as dotted red vertical lines (only in visible range)
-    for (const edge of data.edges) {
-      if (edge.energy > 100 && inRange(edge.energy)) {
-        result.push({
-          x: edge.energy,
-          text: `${data.info.symbol} ${edge.label}`,
-          color: "#ef4444",
-        });
-      }
-    }
-
-    // Filter K-edge annotations
-    if (filterOverlays.has("z1") && data.filterZ1 && inRange(data.filterZ1.kEdge)) {
-      result.push({
-        x: data.filterZ1.kEdge,
-        text: `${data.filterZ1.symbol} K`,
-        color: "#f59e0b",
-      });
-    }
-    if (filterOverlays.has("z2") && data.filterZ2 && inRange(data.filterZ2.kEdge)) {
-      result.push({
-        x: data.filterZ2.kEdge,
-        text: `${data.filterZ2.symbol} K`,
-        color: "#a78bfa",
-      });
-    }
-
-    return result;
-  }, [data, filterOverlays, plotEnergyRange]);
-
   if (!ready) {
     return <LoadingState />;
   }
@@ -348,7 +294,6 @@ function HomePage() {
                   defaultLogY
                   defaultLogX
                   showLogToggle={false}
-                  verticalLines={attenuationAnnotations}
                   xRange={plotEnergyRange?.xRange}
                 />
               </div>
