@@ -34,6 +34,7 @@ interface ScientificPlotProps {
   defaultLogX?: boolean;
   verticalLines?: PlotAnnotation[];
   xRange?: [number, number];
+  yRange?: [number, number];
 }
 
 export function ScientificPlot({
@@ -48,6 +49,7 @@ export function ScientificPlot({
   defaultLogX = false,
   verticalLines,
   xRange,
+  yRange,
 }: ScientificPlotProps) {
   const isMobile = useIsMobile();
   const { resolvedMode } = useTheme();
@@ -124,6 +126,12 @@ export function ScientificPlot({
           : xRange
         : undefined;
 
+      const computedYRange = yRange
+        ? logY
+          ? [Math.log10(yRange[0]), Math.log10(yRange[1])]
+          : yRange
+        : undefined;
+
       return {
         title: title ? { text: title, font: { size: 14, color: plotColors.titleColor } } : undefined,
         xaxis: {
@@ -140,6 +148,7 @@ export function ScientificPlot({
           color: plotColors.axisColor,
           gridcolor: plotColors.gridColor,
           zerolinecolor: plotColors.zerolineColor,
+          ...(computedYRange ? { range: computedYRange } : {}),
         },
         ...(yTitle2 ? {
           yaxis2: {
@@ -165,7 +174,7 @@ export function ScientificPlot({
         annotations,
       };
     },
-    [xTitle, yTitle, yTitle2, title, logX, logY, effectiveHeight, plotMargin, verticalLines, plotColors, xRange],
+    [xTitle, yTitle, yTitle2, title, logX, logY, effectiveHeight, plotMargin, verticalLines, plotColors, xRange, yRange],
   );
 
   const config: Partial<Config> = useMemo(

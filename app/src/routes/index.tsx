@@ -13,7 +13,7 @@ import {
 import { PeriodicTable } from "~/components/periodic-table/PeriodicTable";
 import type { ElementData } from "~/components/periodic-table/types";
 import { ScientificPlot } from "~/components/plot/ScientificPlot";
-import type { PlotTrace } from "~/components/plot/ScientificPlot";
+import type { PlotTrace, PlotAnnotation } from "~/components/plot/ScientificPlot";
 import { downloadCsv } from "~/lib/csv-export";
 import { LoadingState } from "~/components/ui/LoadingState";
 import { PageHeader } from "~/components/ui/PageHeader";
@@ -155,33 +155,56 @@ function HomePage() {
     return { eStart, eEnd, xRange };
   }, [data, selectedEdge]);
 
+  // Build energy grid with fine steps (1 eV) around absorption edges
+  const plotEnergies = useMemo(() => {
+    if (!data || !plotEnergyRange) return null;
+    const { eStart, eEnd } = plotEnergyRange;
+    const edgeEnergies = data.edges
+      .map((e) => e.energy)
+      .filter((e) => e >= eStart && e <= eEnd);
+
+    const coarseStep = Math.max(1, (eEnd - eStart) / 300);
+    const fineRadius = 50; // 50 eV around each edge
+    const fineStep = 1;
+
+    const points = new Set<number>();
+    for (let e = eStart; e <= eEnd; e += coarseStep) {
+      points.add(Math.round(e * 10) / 10);
+    }
+    points.add(eEnd);
+    // Add fine grid around each edge
+    for (const edgeE of edgeEnergies) {
+      const lo = Math.max(eStart, edgeE - fineRadius);
+      const hi = Math.min(eEnd, edgeE + fineRadius);
+      for (let e = lo; e <= hi; e += fineStep) {
+        points.add(Math.round(e * 10) / 10);
+      }
+    }
+
+    const sorted = [...points].sort((a, b) => a - b);
+    return { arr: sorted, f64: new Float64Array(sorted) };
+  }, [data, plotEnergyRange]);
+
   // Attenuation plot with filter overlays
   const attenuationPlot = useMemo<PlotTrace[]>(() => {
-    if (!data || !plotEnergyRange) return [];
+    if (!data || !plotEnergies) return [];
     try {
-      const { eStart, eEnd } = plotEnergyRange;
-      const nPoints = 500;
-      const step = Math.max(1, (eEnd - eStart) / nPoints);
-      const energiesArr: number[] = [];
-      for (let e = eStart; e <= eEnd; e += step) {
-        energiesArr.push(e);
-      }
-      const energies = new Float64Array(energiesArr);
+      const { arr, f64 } = plotEnergies;
       const result: PlotTrace[] = [];
 
       // Primary element
-      const mu = mu_elam(data.info.symbol, energies, "total") as Float64Array;
+      const mu = mu_elam(data.info.symbol, f64, "total") as Float64Array;
       result.push({
-        x: energiesArr,
+        x: arr,
         y: Array.from(mu),
         name: `${data.info.symbol} total`,
       });
 
       // Z-1 filter overlay
       if (filterOverlays.has("z1") && data.filterZ1) {
-        const fmu = mu_elam(data.filterZ1.symbol, energies, "total") as Float64Array;
+        const fmu = mu_elam(data.filterZ1.symbol, f64, "total") as Float64Array;
         result.push({
-          x: energiesArr,
+          x: arr,
           y: Array.from(fmu),
           name: `${data.filterZ1.symbol} filter (Z-1)`,
           line: { color: "#f59e0b", width: 2 },
@@ -190,9 +213,9 @@ function HomePage() {
 
       // Z-2 filter overlay
       if (filterOverlays.has("z2") && data.filterZ2) {
-        const fmu = mu_elam(data.filterZ2.symbol, energies, "total") as Float64Array;
+        const fmu = mu_elam(data.filterZ2.symbol, f64, "total") as Float64Array;
         result.push({
-          x: energiesArr,
+          x: arr,
           y: Array.from(fmu),
           name: `${data.filterZ2.symbol} filter (Z-2)`,
           line: { color: "#a78bfa", width: 2 },
@@ -203,7 +226,41 @@ function HomePage() {
     } catch {
       return [];
     }
-  }, [data, filterOverlays, plotEnergyRange]);
+  }, [data, filterOverlays, plotEnergies]);
+
+  // Compute tight y-range from trace data
+  const plotYRange = useMemo<[number, number] | undefined>(() => {
+    if (attenuationPlot.length === 0) return undefined;
+    let yMin = Infinity;
+    let yMax = -Infinity;
+    for (const trace of attenuationPlot) {
+      for (const v of trace.y) {
+        if (v > 0 && v < yMin) yMin = v;
+        if (v > yMax) yMax = v;
+      }
+    }
+    if (!isFinite(yMin) || !isFinite(yMax)) return undefined;
+    // Add half a decade of padding on log scale
+    return [yMin / 2, yMax * 3];
+  }, [attenuationPlot]);
+
+  // Emission line annotations only (no edge lines)
+  const emissionAnnotations = useMemo<PlotAnnotation[]>(() => {
+    if (!data || !plotEnergyRange) return [];
+    const visRange = plotEnergyRange.xRange ?? [plotEnergyRange.eStart, plotEnergyRange.eEnd];
+    const inRange = (e: number) => e >= visRange[0] * 0.9 && e <= visRange[1] * 1.1;
+
+    return [...data.lines]
+      .sort((a, b) => b.intensity - a.intensity)
+      .slice(0, 8)
+      .filter((l) => l.energy > 100 && inRange(l.energy))
+      .map((line) => ({
+        x: line.energy,
+        text: line.label,
+        color: "#22c55e",
+        dash: "dash" as const,
+      }));
+  }, [data, plotEnergyRange]);
 
   if (!ready) {
     return <LoadingState />;
@@ -294,7 +351,9 @@ function HomePage() {
                   defaultLogY
                   defaultLogX
                   showLogToggle={false}
+                  verticalLines={emissionAnnotations}
                   xRange={plotEnergyRange?.xRange}
+                  yRange={plotYRange}
                 />
               </div>
             )}
