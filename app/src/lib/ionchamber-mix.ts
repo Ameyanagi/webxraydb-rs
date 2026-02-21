@@ -48,10 +48,12 @@ export function updateGasFractionBalanced(
 
   const othersSum = gases.reduce((sum, gas, i) => sum + (i === index ? 0 : gas.fraction), 0);
   if (othersSum <= 0) {
-    // All other gases are at 0 — distribute remainder equally among them
-    const otherCount = gases.length - 1;
-    const each = otherCount > 0 ? (1 - clamped) / otherCount : 0;
-    return gases.map((gas, i) => ({ ...gas, fraction: i === index ? clamped : each }));
+    // All other gases are at 0 — put remainder in the last gas (or first if editing the last)
+    const target = index === gases.length - 1 ? 0 : gases.length - 1;
+    return gases.map((gas, i) => ({
+      ...gas,
+      fraction: i === index ? clamped : i === target ? 1 - clamped : 0,
+    }));
   }
 
   const remaining = 1 - clamped;
