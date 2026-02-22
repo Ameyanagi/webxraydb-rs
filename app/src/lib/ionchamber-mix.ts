@@ -46,20 +46,17 @@ export function updateGasFractionBalanced(
     return [{ ...gases[0], fraction: 1 }];
   }
 
-  const othersSum = gases.reduce((sum, gas, i) => sum + (i === index ? 0 : gas.fraction), 0);
-  if (othersSum <= 0) {
-    // All other gases are at 0 — put remainder in the last gas (or first if editing the last)
-    const target = index === gases.length - 1 ? 0 : gases.length - 1;
-    return gases.map((gas, i) => ({
-      ...gas,
-      fraction: i === index ? clamped : i === target ? 1 - clamped : 0,
-    }));
-  }
+  // Only the companion gas absorbs the change; all others stay fixed.
+  // Companion is the last gas, or the first if editing the last.
+  const companion = index === gases.length - 1 ? 0 : gases.length - 1;
+  const fixedSum = gases.reduce(
+    (sum, gas, i) => sum + (i === index || i === companion ? 0 : gas.fraction),
+    0,
+  );
+  const companionFraction = Math.max(0, Math.min(1, 1 - clamped - fixedSum));
 
-  const remaining = 1 - clamped;
-  const scale = remaining / othersSum;
   return gases.map((gas, i) => ({
     ...gas,
-    fraction: i === index ? clamped : Math.max(0, gas.fraction * scale),
+    fraction: i === index ? clamped : i === companion ? companionFraction : gas.fraction,
   }));
 }
