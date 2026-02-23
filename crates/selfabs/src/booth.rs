@@ -35,6 +35,26 @@ pub struct BoothResult {
     pub fluorescence_energy: f64,
 }
 
+/// Booth suppression-ratio result for reference plotting.
+pub struct BoothSuppressionResult {
+    /// Energy grid (eV).
+    pub energies: Vec<f64>,
+    /// Suppression ratio R(E, χ) = χ_exp / χ_true.
+    pub suppression_factor: Vec<f64>,
+    /// Minimum R over grid.
+    pub r_min: f64,
+    /// Maximum R over grid.
+    pub r_max: f64,
+    /// Mean R over grid.
+    pub r_mean: f64,
+    /// Whether thick branch was used by Booth.
+    pub is_thick: bool,
+    /// Edge energy (eV).
+    pub edge_energy: f64,
+    /// Fluorescence energy (eV).
+    pub fluorescence_energy: f64,
+}
+
 impl BoothResult {
     /// Correct measured χ(k) using the Booth algorithm.
     ///
@@ -293,6 +313,59 @@ pub fn booth(
         sin_phi,
         edge_energy: info.edge_energy,
         fluorescence_energy: info.fluor_energy,
+    })
+}
+
+/// Compute Booth reference suppression ratio `R(E, χ) = χ_exp/χ_true`.
+#[allow(clippy::too_many_arguments)]
+pub fn booth_suppression_reference(
+    formula: &str,
+    central_element: &str,
+    edge: &str,
+    energies: &[f64],
+    geometry: Option<FluorescenceGeometry>,
+    thickness_um: f64,
+    density_g_cm3: f64,
+    chi_true: f64,
+) -> Result<BoothSuppressionResult, SelfAbsError> {
+    if !density_g_cm3.is_finite() || density_g_cm3 <= 0.0 {
+        return Err(SelfAbsError::InsufficientData(
+            "density must be finite and > 0".to_string(),
+        ));
+    }
+    if !thickness_um.is_finite() || thickness_um <= 0.0 {
+        return Err(SelfAbsError::InsufficientData(
+            "thickness_um must be finite and > 0".to_string(),
+        ));
+    }
+    if !chi_true.is_finite() || chi_true == 0.0 {
+        return Err(SelfAbsError::InsufficientData(
+            "chi_true must be finite and non-zero".to_string(),
+        ));
+    }
+
+    let base = booth(
+        formula,
+        central_element,
+        edge,
+        energies,
+        geometry,
+        thickness_um,
+    )?;
+    let r = base.suppression_factor(chi_true, density_g_cm3, thickness_um)?;
+    let r_min = r.iter().fold(f64::INFINITY, |m, &v| m.min(v));
+    let r_max = r.iter().fold(f64::NEG_INFINITY, |m, &v| m.max(v));
+    let r_mean = r.iter().sum::<f64>() / r.len() as f64;
+
+    Ok(BoothSuppressionResult {
+        energies: base.energies,
+        suppression_factor: r,
+        r_min,
+        r_max,
+        r_mean,
+        is_thick: base.is_thick,
+        edge_energy: base.edge_energy,
+        fluorescence_energy: base.fluorescence_energy,
     })
 }
 

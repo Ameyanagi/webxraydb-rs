@@ -154,6 +154,20 @@ pub struct BoothResult {
     pub fluorescence_energy: f64,
 }
 
+/// Booth suppression reference result (R(E, χ) = χexp/χ).
+#[derive(Serialize, Tsify)]
+#[tsify(into_wasm_abi)]
+pub struct BoothSuppressionResult {
+    pub energies: Vec<f64>,
+    pub suppression_factor: Vec<f64>,
+    pub r_min: f64,
+    pub r_max: f64,
+    pub r_mean: f64,
+    pub is_thick: bool,
+    pub edge_energy: f64,
+    pub fluorescence_energy: f64,
+}
+
 /// Ameyanagi algorithm result (exact suppression factor R(E, χ)).
 #[derive(Serialize, Tsify)]
 #[tsify(into_wasm_abi)]

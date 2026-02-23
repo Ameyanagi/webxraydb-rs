@@ -3,6 +3,7 @@ import { useState, useMemo, useEffect, useCallback } from "react";
 import { useWasm } from "~/hooks/useWasm";
 import {
   sa_ameyanagi,
+  sa_booth_reference,
   parse_formula,
   validate_formula,
   atomic_number,
@@ -132,6 +133,7 @@ interface SummaryInfo {
   rMax?: number;
   rMean?: number;
   interpretation?: string;
+  isThick?: boolean;
   thicknessCm?: number;
   geometryG?: number;
   chiAssumed?: number;
@@ -158,6 +160,12 @@ function pickEdge(el: string): [string[], string] {
   if (filtered.length === 0) return [["K"], "K"];
   // Pick lowest-energy common edge (last in EDGE_OPTIONS order, which lists high→low)
   return [[...filtered], filtered[filtered.length - 1]];
+}
+
+function resolveEdgeSelection(availableEdges: string[], previousEdge: string, fallbackEdge: string): string {
+  if (availableEdges.includes(previousEdge)) return previousEdge;
+  if (availableEdges.includes("K")) return "K";
+  return fallbackEdge;
 }
 
 function classifySuppression(r: number): string {
@@ -215,6 +223,18 @@ function parseChiSweepList(input: string): { values: number[]; error: string | n
     };
   }
   return { values, error: null };
+}
+
+function resolveThicknessCm(
+  thicknessMode: ThicknessMode,
+  thicknessCm: number,
+  pelletMassG: number,
+  pelletDiameterCm: number,
+  densityGcm3: number,
+): number {
+  if (thicknessMode === "thickness") return thicknessCm;
+  const area = Math.PI * (pelletDiameterCm * 0.5) ** 2;
+  return pelletMassG / (densityGcm3 * area);
 }
 
 function SelfAbsorptionPage() {
@@ -276,15 +296,16 @@ function SelfAbsorptionPage() {
         setElement(detected);
         const [edges, bestEdge] = pickEdge(detected);
         setAvailableEdges(edges);
-        setEdge(bestEdge);
-        const range = computeEnergyRange(detected, bestEdge);
+        const nextEdge = resolveEdgeSelection(edges, edge, bestEdge);
+        setEdge(nextEdge);
+        const range = computeEnergyRange(detected, nextEdge);
         if (range) {
           setEStart(range[0]);
           setEEnd(range[1]);
         }
       }
     },
-    [ready],
+    [ready, edge],
   );
 
   // Sync edge + energy range when element changes manually
@@ -294,14 +315,15 @@ function SelfAbsorptionPage() {
       if (!ready || !newElement.trim()) return;
       const [edges, bestEdge] = pickEdge(newElement);
       setAvailableEdges(edges);
-      setEdge(bestEdge);
-      const range = computeEnergyRange(newElement, bestEdge);
+      const nextEdge = resolveEdgeSelection(edges, edge, bestEdge);
+      setEdge(nextEdge);
+      const range = computeEnergyRange(newElement, nextEdge);
       if (range) {
         setEStart(range[0]);
         setEEnd(range[1]);
       }
     },
-    [ready],
+    [ready, edge],
   );
 
   // Sync energy range when edge changes manually
@@ -326,8 +348,9 @@ function SelfAbsorptionPage() {
       setElement(detected);
       const [edges, bestEdge] = pickEdge(detected);
       setAvailableEdges(edges);
-      setEdge(bestEdge);
-      const range = computeEnergyRange(detected, bestEdge);
+      const nextEdge = resolveEdgeSelection(edges, "K", bestEdge);
+      setEdge(nextEdge);
+      const range = computeEnergyRange(detected, nextEdge);
       if (range) {
         setEStart(range[0]);
         setEEnd(range[1]);
@@ -374,6 +397,16 @@ function SelfAbsorptionPage() {
       const ameyanagiRTraces: PlotTrace[] = [];
       const summary: SummaryInfo[] = [];
       let colorIdx = 0;
+      const resolvedThicknessCm = resolveThicknessCm(
+        thicknessMode,
+        thicknessCm,
+        pelletMassG,
+        pelletDiameterCm,
+        densityGcm3,
+      );
+      const thicknessUmRef = resolvedThicknessCm * 1e4;
+      const thetaInDeg = (phiRad * 180.0) / Math.PI;
+      const thetaOutDeg = (thetaRad * 180.0) / Math.PI;
 
       const chiValues = ameyanagiChiMode === "single"
         ? [chiAssumed]
@@ -398,13 +431,13 @@ function SelfAbsorptionPage() {
         const rValues = r.suppression_factor as number[];
         const rPercent = rValues.map((v: number) => v * 100);
         const chiLabel = formatChi(chi);
-        const name = ameyanagiChiMode === "single"
+        const ameyanagiName = ameyanagiChiMode === "single"
           ? "Ameyanagi"
           : `Ameyanagi χ=${chiLabel}`;
-        const line = { color, width: 2, dash: "dashdot" as const };
-        ameyanagiRTraces.push({ x: energyArr, y: rPercent, name, line });
+        const ameyanagiLine = { color, width: 2 };
+        ameyanagiRTraces.push({ x: energyArr, y: rPercent, name: ameyanagiName, line: ameyanagiLine });
         summary.push({
-          algorithm: name,
+          algorithm: ameyanagiName,
           edgeEnergy: r.edge_energy,
           fluorEnergy: r.fluorescence_energy_weighted,
           rMin: r.r_min,
@@ -416,6 +449,37 @@ function SelfAbsorptionPage() {
           chiAssumed: chi,
           muF: r.mu_f,
           betaPath: r.beta,
+        });
+
+        const b = sa_booth_reference(
+          formula.trim(),
+          element.trim(),
+          edge.trim(),
+          energies,
+          thetaInDeg,
+          thetaOutDeg,
+          thicknessUmRef,
+          densityGcm3,
+          chi,
+        );
+        const bValues = b.suppression_factor as number[];
+        const bPercent = bValues.map((v: number) => v * 100);
+        const boothName = ameyanagiChiMode === "single"
+          ? "Booth ref"
+          : `Booth ref χ=${chiLabel}`;
+        const boothLine = { color, width: 2, dash: "dash" as const };
+        ameyanagiRTraces.push({ x: energyArr, y: bPercent, name: boothName, line: boothLine });
+        summary.push({
+          algorithm: boothName,
+          edgeEnergy: b.edge_energy,
+          fluorEnergy: b.fluorescence_energy,
+          rMin: b.r_min,
+          rMax: b.r_max,
+          rMean: b.r_mean,
+          interpretation: classifySuppression(b.r_mean),
+          isThick: b.is_thick,
+          thicknessCm: resolvedThicknessCm,
+          chiAssumed: chi,
         });
       }
 
@@ -452,7 +516,7 @@ function SelfAbsorptionPage() {
     <div>
       <PageHeader
         title="Self Absorption"
-        description="Fluorescence self-absorption analysis using exact Ameyanagi suppression."
+        description="Fluorescence self-absorption analysis using exact Ameyanagi suppression with Booth reference."
       />
 
       <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-[320px_1fr]">
@@ -710,9 +774,10 @@ function SelfAbsorptionPage() {
               traces={calcState.data?.ameyanagiRTraces ?? []}
               xTitle="Energy (eV)"
               yTitle="R(E, χ) retained (%)"
-              title={`Ameyanagi exact ratio vs Energy (percent)${ameyanagiSweepActive ? " (multi-χ)" : ""}`}
+              title={`Ameyanagi and Booth reference vs Energy (percent)${ameyanagiSweepActive ? " (multi-χ)" : ""}`}
               height={380}
               showLogToggle={false}
+              yRange={[0, 100]}
             />
           )}
 
@@ -753,6 +818,9 @@ function SummaryCard({ info }: { info: SummaryInfo }) {
         )}
         {info.interpretation != null && (
           <Stat label="Suppression" value={info.interpretation} />
+        )}
+        {info.isThick != null && (
+          <Stat label="Booth branch" value={info.isThick ? "Thick" : "Thin"} />
         )}
         {info.thicknessCm != null && (
           <Stat label="Thickness" value={`${info.thicknessCm.toExponential(3)} cm`} />

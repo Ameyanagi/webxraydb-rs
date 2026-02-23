@@ -1,6 +1,9 @@
 use wasm_bindgen::prelude::*;
 
-use crate::types::{AmeyanagiResult, AtomsResult, BoothResult, FluoParamsResult, TrogerResult};
+use crate::types::{
+    AmeyanagiResult, AtomsResult, BoothResult, BoothSuppressionResult, FluoParamsResult,
+    TrogerResult,
+};
 
 fn make_geometry(
     theta_in: Option<f64>,
@@ -88,6 +91,45 @@ pub fn sa_booth(
         s: r.s,
         alpha: r.alpha,
         sin_phi: r.sin_phi,
+        edge_energy: r.edge_energy,
+        fluorescence_energy: r.fluorescence_energy,
+    })
+}
+
+/// Booth reference suppression ratio R(E, χ) = χexp/χ.
+#[wasm_bindgen]
+#[allow(clippy::too_many_arguments)]
+pub fn sa_booth_reference(
+    formula: &str,
+    central_element: &str,
+    edge: &str,
+    energies: &[f64],
+    theta_incident: Option<f64>,
+    theta_fluorescence: Option<f64>,
+    thickness_um: f64,
+    density_g_cm3: f64,
+    chi_assumed: f64,
+) -> Result<BoothSuppressionResult, JsError> {
+    let geo = make_geometry(theta_incident, theta_fluorescence);
+    let r = selfabs::booth::booth_suppression_reference(
+        formula,
+        central_element,
+        edge,
+        energies,
+        geo,
+        thickness_um,
+        density_g_cm3,
+        chi_assumed,
+    )
+    .map_err(|e| JsError::new(&e.to_string()))?;
+
+    Ok(BoothSuppressionResult {
+        energies: r.energies,
+        suppression_factor: r.suppression_factor,
+        r_min: r.r_min,
+        r_max: r.r_max,
+        r_mean: r.r_mean,
+        is_thick: r.is_thick,
         edge_energy: r.edge_energy,
         fluorescence_energy: r.fluorescence_energy,
     })

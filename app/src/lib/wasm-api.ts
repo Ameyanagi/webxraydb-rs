@@ -45,6 +45,7 @@ export {
   sa_fluo,
   sa_troger,
   sa_booth,
+  sa_booth_reference,
   sa_ameyanagi,
   sa_atoms,
 } from "~/wasm-pkg/webxraydb_wasm";
