@@ -137,7 +137,7 @@ interface SelfAbsData {
   energyTraces: PlotTrace[];
   /** Signal retained (%) vs k (only above-edge points). */
   kTraces: PlotTrace[];
-  /** Exact Ameyanagi ratio R(E, χ) = χ_exp/χ vs energy. */
+  /** Ameyanagi suppression ratio in percent: 100 * R(E, χ). */
   ameyanagiRTraces: PlotTrace[];
   summary: SummaryInfo[];
 }
@@ -486,15 +486,13 @@ function SelfAbsorptionPage() {
               chi,
             );
             const rValues = r.suppression_factor as number[];
-            const pct = rValues.map((v: number) => v * 100);
+            const rPercent = rValues.map((v: number) => v * 100);
             const chiLabel = formatChi(chi);
             const name = ameyanagiChiMode === "single"
               ? "Ameyanagi"
               : `Ameyanagi χ=${chiLabel}`;
             const line = { color, width: 2, dash: "dashdot" as const };
-            energyTraces.push({ x: energyArr, y: pct, name, line });
-            ameyanagiRTraces.push({ x: energyArr, y: rValues, name, line });
-            toKTrace(energyArr, pct, r.edge_energy, name, line);
+            ameyanagiRTraces.push({ x: energyArr, y: rPercent, name, line });
             summary.push({
               algorithm: name,
               edgeEnergy: r.edge_energy,
@@ -987,34 +985,38 @@ function SelfAbsorptionPage() {
             <ScientificPlot
               traces={calcState.data?.ameyanagiRTraces ?? []}
               xTitle="Energy (eV)"
-              yTitle="R(E, χ) = χexp/χ"
-              title={`Ameyanagi exact ratio vs Energy${ameyanagiSweepActive ? " (multi-χ)" : ""}`}
+              yTitle="R(E, χ) retained (%)"
+              title={`Ameyanagi exact ratio vs Energy (percent)${ameyanagiSweepActive ? " (multi-χ)" : ""}`}
               height={380}
               showLogToggle={false}
             />
           )}
 
-          <ScientificPlot
-            traces={calcState.data?.energyTraces ?? []}
-            xTitle="Energy (eV)"
-            yTitle="Signal retained (%)"
-            title={`Self-absorption effect vs Energy (100% = no effect${ameyanagiSweepActive ? ", Ameyanagi multi-χ" : ""})`}
-            height={380}
-            showLogToggle={false}
-            yRange={energyYRange}
-          />
+          {(calcState.data?.energyTraces?.length ?? 0) > 0 && (
+            <ScientificPlot
+              traces={calcState.data?.energyTraces ?? []}
+              xTitle="Energy (eV)"
+              yTitle="Signal retained (%)"
+              title="Self-absorption effect vs Energy (100% = no effect)"
+              height={380}
+              showLogToggle={false}
+              yRange={energyYRange}
+            />
+          )}
 
-          <ScientificPlot
-            traces={calcState.data?.kTraces ?? []}
-            xTitle="k (\u00c5\u207b\u00b9)"
-            yTitle="Signal retained (%)"
-            title={`Self-absorption effect vs k (100% = no effect${ameyanagiSweepActive ? ", Ameyanagi multi-χ" : ""})`}
-            height={380}
-            showLogToggle={false}
-            yRange={kYRange}
-            xRange={[0, 16]}
-            xDtick={2}
-          />
+          {(calcState.data?.kTraces?.length ?? 0) > 0 && (
+            <ScientificPlot
+              traces={calcState.data?.kTraces ?? []}
+              xTitle="k (\u00c5\u207b\u00b9)"
+              yTitle="Signal retained (%)"
+              title="Self-absorption effect vs k (100% = no effect)"
+              height={380}
+              showLogToggle={false}
+              yRange={kYRange}
+              xRange={[0, 16]}
+              xDtick={2}
+            />
+          )}
 
           {calcState.data?.summary && calcState.data.summary.length > 0 && (
             <div className="rounded-lg border border-border bg-card p-4">
