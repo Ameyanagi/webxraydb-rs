@@ -83,7 +83,7 @@ $$
 $$
 
 $$
-A(E,\chi) = \alpha(E) + \bar{\mu}_a(E)(1+\chi)
+A(E,\chi) = \alpha(E) + \bar{\mu}_a(E)\chi
 $$
 
 where:
@@ -104,15 +104,15 @@ R(E,\chi)
 \frac{1}{\chi}
 \left[
 \frac{
-\alpha(E)\left(1 - e^{-A(E,\chi)\beta}\right)
+\left(1 - e^{-A(E,\chi)\beta}\right)
 }{
-A(E,\chi)\left(1 - e^{-\alpha(E)\beta}\right)
+\left(1 - e^{-\alpha(E)\beta}\right)
 }
 \cdot
 \frac{
 \alpha(E)(1+\chi)
 }{
-\alpha(E)+\bar{\mu}_a(E)
+A(E,\chi)
 }
 -1
 \right]

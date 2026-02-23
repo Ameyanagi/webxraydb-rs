@@ -117,10 +117,10 @@ pub struct AmeyanagiSuppressionSettings {
 ///
 /// ```text
 /// F(E, χ) =
-///   [ α(E) * (1 - exp(-A(E,χ)β)) / (A(E,χ) * (1 - exp(-α(E)β))) ]
-///   * [ α(E)(1+χ) / (α(E)+μ_a(E)) ]
+///   [ (1 - exp(-A(E,χ)β)) / (1 - exp(-α(E)β)) ]
+///   * [ α(E)(1+χ) / A(E,χ) ]
 ///
-/// A(E,χ) = α(E) + μ_a(E)(1+χ)
+/// A(E,χ) = α(E) + μ_a(E)χ
 /// α(E)   = μ_T(E) + g μ_f
 /// g      = sin(phi)/sin(theta)
 /// β      = d/sin(phi)
@@ -206,13 +206,13 @@ pub fn ameyanagi_suppression_exact(
     for i in 0..energies_ev.len() {
         let alpha = mu_total[i] + geometry_g * mu_f;
         let mu_a_i = mu_a[i];
-        let a = alpha + mu_a_i * (1.0 + chi_assumed);
+        let a = alpha + mu_a_i * chi_assumed;
 
         let one_minus_exp_ab = one_minus_exp_neg(a * beta);
         let one_minus_exp_alphab = one_minus_exp_neg(alpha * beta);
 
-        let denom_main = a * one_minus_exp_alphab;
-        let denom_ratio = alpha + mu_a_i;
+        let denom_main = one_minus_exp_alphab;
+        let denom_ratio = a;
 
         if denom_main.abs() < 1e-300 || denom_ratio.abs() < 1e-300 {
             return Err(SelfAbsError::InsufficientData(format!(
@@ -220,7 +220,7 @@ pub fn ameyanagi_suppression_exact(
             )));
         }
 
-        let term1 = alpha * one_minus_exp_ab / denom_main;
+        let term1 = one_minus_exp_ab / denom_main;
         let term2 = alpha * (1.0 + chi_assumed) / denom_ratio;
         let ri = (term1 * term2 - 1.0) / chi_assumed;
 
@@ -462,6 +462,90 @@ mod tests {
         .unwrap();
 
         assert!(thick.r_mean < thin.r_mean);
+    }
+
+    #[test]
+    fn test_positive_chi_gives_positive_suppression_factor() {
+        let r = ameyanagi_suppression_exact(
+            "Fe2O3",
+            "Fe",
+            "K",
+            &energies(),
+            AmeyanagiSuppressionSettings {
+                density_g_cm3: 5.24,
+                phi_rad: std::f64::consts::FRAC_PI_4,
+                theta_rad: std::f64::consts::FRAC_PI_4,
+                thickness_input: AmeyanagiThicknessInput::ThicknessCm(0.01),
+                chi_assumed: 0.2,
+            },
+        )
+        .unwrap();
+
+        assert!(
+            r.suppression_factor.iter().all(|&v| v.is_finite() && v > 0.0),
+            "expected all R(E,chi)>0 for positive chi"
+        );
+    }
+
+    #[test]
+    fn test_thick_limit_matches_booth_eq6_ratio() {
+        let energies = energies();
+        let chi = 0.2;
+        let density = 5.24;
+        let phi = std::f64::consts::FRAC_PI_4;
+        let theta = std::f64::consts::FRAC_PI_4;
+        let thickness_cm = 0.5;
+
+        let exact = ameyanagi_suppression_exact(
+            "Fe2O3",
+            "Fe",
+            "K",
+            &energies,
+            AmeyanagiSuppressionSettings {
+                density_g_cm3: density,
+                phi_rad: phi,
+                theta_rad: theta,
+                thickness_input: AmeyanagiThicknessInput::ThicknessCm(thickness_cm),
+                chi_assumed: chi,
+            },
+        )
+        .unwrap();
+
+        let db = XrayDb::new();
+        let info = SampleInfo::new(&db, "Fe2O3", "Fe", "K").unwrap();
+        let mass_fractions = composition_mass_fractions(&db, &info.composition).unwrap();
+        let w_absorber = mass_fractions
+            .iter()
+            .find_map(|(sym, w)| (sym == &info.central_symbol).then_some(*w))
+            .unwrap();
+        let mu_total = compound_mu_linear(&db, &mass_fractions, density, &energies).unwrap();
+        let mu_abs_mass = db
+            .mu_elam(&info.central_symbol, &energies, CrossSectionKind::Photo)
+            .unwrap();
+        let mu_a: Vec<f64> = mu_abs_mass
+            .iter()
+            .map(|&mu_rho| density * w_absorber * mu_rho)
+            .collect();
+        let (mu_f, _) =
+            weighted_fluorescence_mu(&db, &mass_fractions, density, &info.central_symbol, "K")
+                .unwrap();
+        let g = phi.sin() / theta.sin();
+
+        let mut max_abs_err = 0.0f64;
+        for i in 0..energies.len() {
+            let alpha = mu_total[i] + g * mu_f;
+            let s = mu_a[i] / alpha;
+            let thick_ratio = (1.0 - s) / (1.0 + s * chi);
+            let err = (exact.suppression_factor[i] - thick_ratio).abs();
+            if err > max_abs_err {
+                max_abs_err = err;
+            }
+        }
+
+        assert!(
+            max_abs_err < 1e-6,
+            "thick-limit mismatch too large: {max_abs_err}"
+        );
     }
 
     #[test]
