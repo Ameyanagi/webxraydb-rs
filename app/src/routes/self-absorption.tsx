@@ -2,11 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { useWasm } from "~/hooks/useWasm";
 import {
-  sa_fluo,
-  sa_troger,
-  sa_booth,
   sa_ameyanagi,
-  sa_atoms,
   parse_formula,
   validate_formula,
   atomic_number,
@@ -27,16 +23,6 @@ import { PageHeader } from "~/components/ui/PageHeader";
 export const Route = createFileRoute("/self-absorption")({
   component: SelfAbsorptionPage,
 });
-
-type Algorithm = "ameyanagi" | "fluo" | "troger" | "booth" | "atoms";
-
-const ALGORITHMS: { value: Algorithm; label: string; description: string }[] = [
-  { value: "ameyanagi", label: "Ameyanagi", description: "Exact Booth suppression factor from full equation" },
-  { value: "fluo", label: "Fluo", description: "Haskel, Ravel, Stern — corrects \u03bc(E), works for XANES" },
-  { value: "troger", label: "Tr\u00f6ger", description: "Tr\u00f6ger et al. (1992) — simple \u03c7(k) correction" },
-  { value: "booth", label: "Booth", description: "Booth & Bridges (2005) — thin + thick samples" },
-  { value: "atoms", label: "Atoms", description: "Ravel (2001) — amplitude + \u03c3\u00b2 correction" },
-];
 
 /** ETOK constant for energy-to-k conversion: k = sqrt(ETOK * (E - E0)). */
 const ETOK = 0.2624682917;
@@ -133,10 +119,6 @@ function computeEnergyRange(
 }
 
 interface SelfAbsData {
-  /** Signal retained (%) vs energy. */
-  energyTraces: PlotTrace[];
-  /** Signal retained (%) vs k (only above-edge points). */
-  kTraces: PlotTrace[];
   /** Ameyanagi suppression ratio in percent: 100 * R(E, χ). */
   ameyanagiRTraces: PlotTrace[];
   summary: SummaryInfo[];
@@ -155,15 +137,6 @@ interface SummaryInfo {
   chiAssumed?: number;
   muF?: number;
   betaPath?: number;
-  amplitude?: number;
-  sigmaSquared?: number;
-  sigmaSquaredSelf?: number;
-  sigmaSquaredNorm?: number;
-  sigmaSquaredI0?: number;
-  sigmaSquaredNet?: number;
-  beta?: number;
-  gammaPrime?: number;
-  isThick?: boolean;
 }
 
 const COLORS = ["#3b82f6", "#ef4444", "#22c55e", "#f59e0b", "#14b8a6"];
@@ -244,28 +217,6 @@ function parseChiSweepList(input: string): { values: number[]; error: string | n
   return { values, error: null };
 }
 
-function signalYAxisRange(traces: PlotTrace[]): [number, number] | undefined {
-  let min = Number.POSITIVE_INFINITY;
-  let max = Number.NEGATIVE_INFINITY;
-  let found = false;
-
-  for (const t of traces) {
-    for (const y of t.y) {
-      if (!Number.isFinite(y)) continue;
-      found = true;
-      if (y < min) min = y;
-      if (y > max) max = y;
-    }
-  }
-
-  if (!found) return [0, 105];
-  if (min >= 0 && max <= 105) return [0, 105];
-
-  const span = Math.max(max - min, 1e-6);
-  const pad = span * 0.08;
-  return [min - pad, max + pad];
-}
-
 function SelfAbsorptionPage() {
   const ready = useWasm();
 
@@ -276,9 +227,6 @@ function SelfAbsorptionPage() {
   const [eStart, setEStart] = useState(7000);
   const [eEnd, setEEnd] = useState(8000);
   const [eStep, setEStep] = useState(2);
-  const [thetaIn, setThetaIn] = useState(45);
-  const [thetaOut, setThetaOut] = useState(45);
-  const [thicknessUm, setThicknessUm] = useState(100000);
   const [densityGcm3, setDensityGcm3] = useState(5.24);
   const [phiRad, setPhiRad] = useState(Math.PI / 4);
   const [thetaRad, setThetaRad] = useState(Math.PI / 4);
@@ -292,18 +240,6 @@ function SelfAbsorptionPage() {
   const [thicknessCm, setThicknessCm] = useState(0.01);
   const [pelletMassG, setPelletMassG] = useState(0.05);
   const [pelletDiameterCm, setPelletDiameterCm] = useState(1.0);
-  const [selectedAlgos, setSelectedAlgos] = useState<Algorithm[]>([
-    "ameyanagi",
-    "troger",
-    "booth",
-    "atoms",
-  ]);
-
-  const toggleAlgo = (algo: Algorithm) => {
-    setSelectedAlgos((prev) =>
-      prev.includes(algo) ? prev.filter((a) => a !== algo) : [...prev, algo],
-    );
-  };
 
   const toggleChiPreset = (chi: number) => {
     setChiSweepCustomError(null);
@@ -404,32 +340,29 @@ function SelfAbsorptionPage() {
     if (!formula.trim()) return errorState("Enter a chemical formula");
     if (!element.trim()) return errorState("Enter the absorbing element");
     if (!edge.trim()) return errorState("Enter the absorption edge");
-    if (selectedAlgos.length === 0) return errorState("Select at least one algorithm");
 
     const ameyanagiChiSweepValues = chiSweepCustomValues.length > 0
       ? chiSweepCustomValues
       : chiSweepPresets;
 
-    if (selectedAlgos.includes("ameyanagi")) {
-      if (!(densityGcm3 > 0)) return errorState("Density must be > 0 g/cm³ for Ameyanagi");
-      if (!(phiRad > 0 && phiRad < Math.PI)) return errorState("Incident angle φ must be in radians and between 0 and π");
-      if (!(thetaRad > 0 && thetaRad < Math.PI)) return errorState("Exit angle θ must be in radians and between 0 and π");
-      if (ameyanagiChiMode === "single") {
-        if (!(Number.isFinite(chiAssumed) && chiAssumed > 0)) {
-          return errorState("Assumed χ must be finite and > 0 for Ameyanagi");
-        }
-      } else {
-        if (chiSweepCustomError) return errorState(chiSweepCustomError);
-        if (ameyanagiChiSweepValues.length === 0) {
-          return errorState("Select at least one χ value for Ameyanagi sweep");
-        }
+    if (!(densityGcm3 > 0)) return errorState("Density must be > 0 g/cm³ for Ameyanagi");
+    if (!(phiRad > 0 && phiRad < Math.PI)) return errorState("Incident angle φ must be in radians and between 0 and π");
+    if (!(thetaRad > 0 && thetaRad < Math.PI)) return errorState("Exit angle θ must be in radians and between 0 and π");
+    if (ameyanagiChiMode === "single") {
+      if (!(Number.isFinite(chiAssumed) && chiAssumed > 0)) {
+        return errorState("Assumed χ must be finite and > 0 for Ameyanagi");
       }
-      if (thicknessMode === "thickness" && !(thicknessCm > 0)) {
-        return errorState("Thickness (cm) must be > 0 for Ameyanagi");
+    } else {
+      if (chiSweepCustomError) return errorState(chiSweepCustomError);
+      if (ameyanagiChiSweepValues.length === 0) {
+        return errorState("Select at least one χ value for Ameyanagi sweep");
       }
-      if (thicknessMode === "pellet" && (!(pelletMassG > 0) || !(pelletDiameterCm > 0))) {
-        return errorState("Pellet mass and diameter must be > 0 for Ameyanagi");
-      }
+    }
+    if (thicknessMode === "thickness" && !(thicknessCm > 0)) {
+      return errorState("Thickness (cm) must be > 0 for Ameyanagi");
+    }
+    if (thicknessMode === "pellet" && (!(pelletMassG > 0) || !(pelletDiameterCm > 0))) {
+      return errorState("Pellet mass and diameter must be > 0 for Ameyanagi");
     }
 
     const range = validateRange(eStart, eEnd, eStep, 30000);
@@ -438,178 +371,55 @@ function SelfAbsorptionPage() {
     try {
       const energies = energyRange(eStart, eEnd, eStep);
       const energyArr = Array.from(energies);
-      const energyTraces: PlotTrace[] = [];
-      const kTraces: PlotTrace[] = [];
       const ameyanagiRTraces: PlotTrace[] = [];
       const summary: SummaryInfo[] = [];
       let colorIdx = 0;
 
-      /** Filter to above-edge points and convert energy to k. */
-      const toKTrace = (
-        eArr: number[],
-        pct: number[],
-        edgeE: number,
-        name: string,
-        line: PlotTrace["line"],
-      ) => {
-        const kx: number[] = [];
-        const ky: number[] = [];
-        for (let i = 0; i < eArr.length; i++) {
-          if (eArr[i] > edgeE) {
-            kx.push(Math.sqrt(ETOK * (eArr[i] - edgeE)));
-            ky.push(pct[i]);
-          }
-        }
-        kTraces.push({ x: kx, y: ky, name, line });
-      };
+      const chiValues = ameyanagiChiMode === "single"
+        ? [chiAssumed]
+        : ameyanagiChiSweepValues;
 
-      for (const algo of selectedAlgos) {
-        if (algo === "ameyanagi") {
-          const chiValues = ameyanagiChiMode === "single"
-            ? [chiAssumed]
-            : ameyanagiChiSweepValues;
-
-          for (const chi of chiValues) {
-            const color = COLORS[colorIdx % COLORS.length];
-            colorIdx++;
-            const r = sa_ameyanagi(
-              formula.trim(),
-              element.trim(),
-              edge.trim(),
-              energies,
-              densityGcm3,
-              phiRad,
-              thetaRad,
-              thicknessMode === "thickness" ? thicknessCm : undefined,
-              thicknessMode === "pellet" ? pelletMassG : undefined,
-              thicknessMode === "pellet" ? pelletDiameterCm : undefined,
-              chi,
-            );
-            const rValues = r.suppression_factor as number[];
-            const rPercent = rValues.map((v: number) => v * 100);
-            const chiLabel = formatChi(chi);
-            const name = ameyanagiChiMode === "single"
-              ? "Ameyanagi"
-              : `Ameyanagi χ=${chiLabel}`;
-            const line = { color, width: 2, dash: "dashdot" as const };
-            ameyanagiRTraces.push({ x: energyArr, y: rPercent, name, line });
-            summary.push({
-              algorithm: name,
-              edgeEnergy: r.edge_energy,
-              fluorEnergy: r.fluorescence_energy_weighted,
-              rMin: r.r_min,
-              rMax: r.r_max,
-              rMean: r.r_mean,
-              interpretation: classifySuppression(r.r_mean),
-              thicknessCm: r.thickness_cm,
-              geometryG: r.geometry_g,
-              chiAssumed: chi,
-              muF: r.mu_f,
-              betaPath: r.beta,
-            });
-          }
-        } else if (algo === "fluo") {
-          const color = COLORS[colorIdx % COLORS.length];
-          colorIdx++;
-          const r = sa_fluo(
-            formula.trim(),
-            element.trim(),
-            edge.trim(),
-            energies,
-            thetaIn,
-            thetaOut,
-          );
-          const betaG = r.beta * r.ratio;
-          const denomConst = betaG + r.gamma_prime + 1.0;
-          const pct = (r.mu_background_norm as number[]).map(
-            (bg: number) => (100 * (betaG + bg)) / denomConst,
-          );
-          const line = { color, width: 2 };
-          energyTraces.push({ x: energyArr, y: pct, name: "Fluo", line });
-          toKTrace(energyArr, pct, r.edge_energy, "Fluo", line);
-          summary.push({
-            algorithm: "Fluo",
-            edgeEnergy: r.edge_energy,
-            fluorEnergy: r.fluorescence_energy,
-            beta: r.beta,
-            gammaPrime: r.gamma_prime,
-          });
-        } else if (algo === "troger") {
-          const color = COLORS[colorIdx % COLORS.length];
-          colorIdx++;
-          const r = sa_troger(
-            formula.trim(),
-            element.trim(),
-            edge.trim(),
-            energies,
-            thetaIn,
-            thetaOut,
-          );
-          const pct = (r.s as number[]).map(
-            (si: number) => (1 - si) * 100,
-          );
-          const line = { color, width: 2 };
-          energyTraces.push({ x: energyArr, y: pct, name: "Tr\u00f6ger", line });
-          toKTrace(energyArr, pct, r.edge_energy, "Tr\u00f6ger", line);
-          summary.push({
-            algorithm: "Tr\u00f6ger",
-            edgeEnergy: r.edge_energy,
-            fluorEnergy: r.fluorescence_energy,
-          });
-        } else if (algo === "booth") {
-          const color = COLORS[colorIdx % COLORS.length];
-          colorIdx++;
-          const r = sa_booth(
-            formula.trim(),
-            element.trim(),
-            edge.trim(),
-            energies,
-            thetaIn,
-            thetaOut,
-            thicknessUm,
-          );
-          const pct = (r.s as number[]).map(
-            (si: number) => (1 - si) * 100,
-          );
-          const name = `Booth (${r.is_thick ? "thick" : "thin"})`;
-          const line = { color, width: 2, dash: "dash" as const };
-          energyTraces.push({ x: energyArr, y: pct, name, line });
-          toKTrace(energyArr, pct, r.edge_energy, name, line);
-          summary.push({
-            algorithm: "Booth",
-            edgeEnergy: r.edge_energy,
-            fluorEnergy: r.fluorescence_energy,
-            isThick: r.is_thick,
-          });
-        } else if (algo === "atoms") {
-          const color = COLORS[colorIdx % COLORS.length];
-          colorIdx++;
-          const r = sa_atoms(
-            formula.trim(),
-            element.trim(),
-            edge.trim(),
-            energies,
-          );
-          const pct = (r.correction as number[]).map(
-            (sigma: number) => (sigma > 0 ? 100 / sigma : 100),
-          );
-          const line = { color, width: 2, dash: "dot" as const };
-          energyTraces.push({ x: energyArr, y: pct, name: "Atoms", line });
-          toKTrace(energyArr, pct, r.edge_energy, "Atoms", line);
-          summary.push({
-            algorithm: "Atoms",
-            edgeEnergy: r.edge_energy,
-            fluorEnergy: r.fluorescence_energy,
-            amplitude: r.amplitude,
-            sigmaSquaredSelf: r.sigma_squared_self,
-            sigmaSquaredNorm: r.sigma_squared_norm,
-            sigmaSquaredI0: r.sigma_squared_i0,
-            sigmaSquaredNet: r.sigma_squared_net,
-          });
-        }
+      for (const chi of chiValues) {
+        const color = COLORS[colorIdx % COLORS.length];
+        colorIdx++;
+        const r = sa_ameyanagi(
+          formula.trim(),
+          element.trim(),
+          edge.trim(),
+          energies,
+          densityGcm3,
+          phiRad,
+          thetaRad,
+          thicknessMode === "thickness" ? thicknessCm : undefined,
+          thicknessMode === "pellet" ? pelletMassG : undefined,
+          thicknessMode === "pellet" ? pelletDiameterCm : undefined,
+          chi,
+        );
+        const rValues = r.suppression_factor as number[];
+        const rPercent = rValues.map((v: number) => v * 100);
+        const chiLabel = formatChi(chi);
+        const name = ameyanagiChiMode === "single"
+          ? "Ameyanagi"
+          : `Ameyanagi χ=${chiLabel}`;
+        const line = { color, width: 2, dash: "dashdot" as const };
+        ameyanagiRTraces.push({ x: energyArr, y: rPercent, name, line });
+        summary.push({
+          algorithm: name,
+          edgeEnergy: r.edge_energy,
+          fluorEnergy: r.fluorescence_energy_weighted,
+          rMin: r.r_min,
+          rMax: r.r_max,
+          rMean: r.r_mean,
+          interpretation: classifySuppression(r.r_mean),
+          thicknessCm: r.thickness_cm,
+          geometryG: r.geometry_g,
+          chiAssumed: chi,
+          muF: r.mu_f,
+          betaPath: r.beta,
+        });
       }
 
-      return readyState({ energyTraces, kTraces, ameyanagiRTraces, summary });
+      return readyState({ ameyanagiRTraces, summary });
     } catch (e: unknown) {
       return errorState(e instanceof Error ? e.message : String(e));
     }
@@ -621,9 +431,6 @@ function SelfAbsorptionPage() {
     eStart,
     eEnd,
     eStep,
-    thetaIn,
-    thetaOut,
-    thicknessUm,
     densityGcm3,
     phiRad,
     thetaRad,
@@ -636,20 +443,16 @@ function SelfAbsorptionPage() {
     thicknessCm,
     pelletMassG,
     pelletDiameterCm,
-    selectedAlgos,
   ]);
 
   if (!ready) return <LoadingState />;
-  const ameyanagiSweepActive =
-    selectedAlgos.includes("ameyanagi") && ameyanagiChiMode === "sweep";
-  const energyYRange = signalYAxisRange(calcState.data?.energyTraces ?? []);
-  const kYRange = signalYAxisRange(calcState.data?.kTraces ?? []);
+  const ameyanagiSweepActive = ameyanagiChiMode === "sweep";
 
   return (
     <div>
       <PageHeader
         title="Self Absorption"
-        description="Fluorescence self-absorption analysis with 5 algorithms, including exact Ameyanagi suppression."
+        description="Fluorescence self-absorption analysis using exact Ameyanagi suppression."
       />
 
       <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-[320px_1fr]">
@@ -681,60 +484,6 @@ function SelfAbsorptionPage() {
                   </option>
                 ))}
               </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="mb-1 block text-sm font-medium">
-                Incident angle
-              </label>
-              <div className="flex items-center gap-1">
-                <input
-                  type="number"
-                  value={thetaIn}
-                  min={1}
-                  max={89}
-                  step={1}
-                  onChange={(e) => setThetaIn(Number(e.target.value))}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                />
-                <span className="text-xs text-muted-foreground">deg</span>
-              </div>
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium">
-                Exit angle
-              </label>
-              <div className="flex items-center gap-1">
-                <input
-                  type="number"
-                  value={thetaOut}
-                  min={1}
-                  max={89}
-                  step={1}
-                  onChange={(e) => setThetaOut(Number(e.target.value))}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                />
-                <span className="text-xs text-muted-foreground">deg</span>
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm font-medium">
-              Thickness (Booth)
-            </label>
-            <div className="flex items-center gap-1">
-              <input
-                type="number"
-                value={thicknessUm}
-                min={1}
-                step={100}
-                onChange={(e) => setThicknessUm(Number(e.target.value))}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              />
-              <span className="text-xs text-muted-foreground">&mu;m</span>
             </div>
           </div>
 
@@ -951,31 +700,6 @@ function SelfAbsorptionPage() {
             onStepChange={setEStep}
           />
 
-          <div>
-            <label className="mb-1 block text-sm font-medium">Algorithms</label>
-            <div className="space-y-1">
-              {ALGORITHMS.map((algo) => (
-                <label
-                  key={algo.value}
-                  className="flex items-start gap-2 rounded border border-border/50 px-2 py-1.5"
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedAlgos.includes(algo.value)}
-                    onChange={() => toggleAlgo(algo.value)}
-                    className="mt-0.5"
-                  />
-                  <div>
-                    <span className="text-sm font-medium">{algo.label}</span>
-                    <p className="text-xs text-muted-foreground">
-                      {algo.description}
-                    </p>
-                  </div>
-                </label>
-              ))}
-            </div>
-          </div>
-
           {calcState.error && <ErrorBanner message={calcState.error} />}
         </div>
 
@@ -989,32 +713,6 @@ function SelfAbsorptionPage() {
               title={`Ameyanagi exact ratio vs Energy (percent)${ameyanagiSweepActive ? " (multi-χ)" : ""}`}
               height={380}
               showLogToggle={false}
-            />
-          )}
-
-          {(calcState.data?.energyTraces?.length ?? 0) > 0 && (
-            <ScientificPlot
-              traces={calcState.data?.energyTraces ?? []}
-              xTitle="Energy (eV)"
-              yTitle="Signal retained (%)"
-              title="Self-absorption effect vs Energy (100% = no effect)"
-              height={380}
-              showLogToggle={false}
-              yRange={energyYRange}
-            />
-          )}
-
-          {(calcState.data?.kTraces?.length ?? 0) > 0 && (
-            <ScientificPlot
-              traces={calcState.data?.kTraces ?? []}
-              xTitle="k (\u00c5\u207b\u00b9)"
-              yTitle="Signal retained (%)"
-              title="Self-absorption effect vs k (100% = no effect)"
-              height={380}
-              showLogToggle={false}
-              yRange={kYRange}
-              xRange={[0, 16]}
-              xDtick={2}
             />
           )}
 
@@ -1044,18 +742,6 @@ function SummaryCard({ info }: { info: SummaryInfo }) {
           label="Fluorescence energy"
           value={`${info.fluorEnergy.toFixed(1)} eV`}
         />
-        {info.amplitude != null && (
-          <Stat label="Amplitude" value={info.amplitude.toFixed(4)} />
-        )}
-        {info.beta != null && (
-          <Stat label="\u03b2" value={info.beta.toFixed(4)} />
-        )}
-        {info.gammaPrime != null && (
-          <Stat label="\u03b3'" value={info.gammaPrime.toFixed(4)} />
-        )}
-        {info.isThick != null && (
-          <Stat label="Sample limit" value={info.isThick ? "Thick" : "Thin"} />
-        )}
         {info.rMin != null && (
           <Stat label="R min" value={info.rMin.toFixed(4)} />
         )}
@@ -1082,30 +768,6 @@ function SummaryCard({ info }: { info: SummaryInfo }) {
         )}
         {info.chiAssumed != null && (
           <Stat label="Assumed χ" value={info.chiAssumed.toFixed(4)} />
-        )}
-        {info.sigmaSquaredSelf != null && (
-          <Stat
-            label={"\u03c3\u00b2 self"}
-            value={`${info.sigmaSquaredSelf.toFixed(6)} \u00c5\u00b2`}
-          />
-        )}
-        {info.sigmaSquaredNorm != null && (
-          <Stat
-            label={"\u03c3\u00b2 norm"}
-            value={`${info.sigmaSquaredNorm.toFixed(6)} \u00c5\u00b2`}
-          />
-        )}
-        {info.sigmaSquaredI0 != null && (
-          <Stat
-            label={"\u03c3\u00b2 I\u2080"}
-            value={`${info.sigmaSquaredI0.toFixed(6)} \u00c5\u00b2`}
-          />
-        )}
-        {info.sigmaSquaredNet != null && (
-          <Stat
-            label={"\u03c3\u00b2 net"}
-            value={`${info.sigmaSquaredNet.toFixed(6)} \u00c5\u00b2`}
-          />
         )}
       </div>
     </div>

@@ -55,46 +55,183 @@ impl BoothResult {
         }
     }
 
+    /// Compute suppression ratio `R(E, χ) = χ_exp / χ_true` point-by-point.
+    ///
+    /// For thick samples this is closed-form:
+    /// `R = (1 - s) / (1 + s χ_true)`.
+    ///
+    /// For thin samples this is obtained by numerically inverting the Booth
+    /// thin correction formula at each energy point.
+    pub fn suppression_factor(
+        &self,
+        chi_true: f64,
+        density: f64,
+        thickness_um: f64,
+    ) -> Result<Vec<f64>, SelfAbsError> {
+        if !chi_true.is_finite() || chi_true == 0.0 {
+            return Err(SelfAbsError::InsufficientData(
+                "chi_true must be finite and non-zero".to_string(),
+            ));
+        }
+
+        if self.is_thick {
+            let mut out = Vec::with_capacity(self.s.len());
+            for &si in &self.s {
+                let denom = 1.0 + si * chi_true;
+                if denom.abs() < 1e-12 || !denom.is_finite() {
+                    return Err(SelfAbsError::InsufficientData(
+                        "unstable thick-limit denominator while computing suppression".to_string(),
+                    ));
+                }
+                out.push((1.0 - si) / denom);
+            }
+            return Ok(out);
+        }
+
+        let mut out = Vec::with_capacity(self.s.len());
+        for i in 0..self.s.len() {
+            let chi_exp = self.solve_chi_exp_thin(i, chi_true, density, thickness_um)?;
+            out.push(chi_exp / chi_true);
+        }
+        Ok(out)
+    }
+
     fn correct_thick(&self, chi: &[f64]) -> Vec<f64> {
         chi.iter()
             .enumerate()
-            .map(|(i, &c)| {
-                let si = self.s[i];
-                let denom = 1.0 - si * (c + 1.0);
-                if denom.abs() > 1e-10 { c / denom } else { c }
-            })
+            .map(|(i, &c)| self.correct_single_thick(i, c))
             .collect()
     }
 
     fn correct_thin(&self, chi: &[f64], density: f64, thickness_um: f64) -> Vec<f64> {
-        let thickness_cm = thickness_um * 1e-4;
-
         chi.iter()
             .enumerate()
-            .map(|(i, &c)| {
-                let alpha_i = self.alpha[i] * density;
-                let mu_a_i = self.s[i] * alpha_i;
-                // η = α × d / sin(φ)  [paper Eq. 5]
-                let eta = alpha_i * thickness_cm / self.sin_phi;
-                let exp_neg_eta = (-eta).exp();
-                let beta = mu_a_i * exp_neg_eta * eta;
-                let gamma = 1.0 - exp_neg_eta;
-
-                if beta.abs() < 1e-30 {
-                    return c;
-                }
-
-                let term1 = gamma * (alpha_i - mu_a_i * (c + 1.0)) + beta;
-                let term2 = 4.0 * alpha_i * beta * gamma * c;
-                let discriminant = term1 * term1 + term2;
-
-                if discriminant < 0.0 {
-                    c
-                } else {
-                    (-term1 + discriminant.sqrt()) / (2.0 * beta)
-                }
-            })
+            .map(|(i, &c)| self.correct_single_thin(i, c, density, thickness_um))
             .collect()
+    }
+
+    fn correct_single_thick(&self, i: usize, chi_exp: f64) -> f64 {
+        let si = self.s[i];
+        let denom = 1.0 - si * (chi_exp + 1.0);
+        if denom.abs() > 1e-10 {
+            chi_exp / denom
+        } else {
+            chi_exp
+        }
+    }
+
+    fn correct_single_thin(
+        &self,
+        i: usize,
+        chi_exp: f64,
+        density: f64,
+        thickness_um: f64,
+    ) -> f64 {
+        let thickness_cm = thickness_um * 1e-4;
+        let alpha_i = self.alpha[i] * density;
+        let mu_a_i = self.s[i] * alpha_i;
+        // η = α × d / sin(φ)  [paper Eq. 5]
+        let eta = alpha_i * thickness_cm / self.sin_phi;
+        let exp_neg_eta = (-eta).exp();
+        let beta = mu_a_i * exp_neg_eta * eta;
+        let gamma = 1.0 - exp_neg_eta;
+
+        if beta.abs() < 1e-30 {
+            return chi_exp;
+        }
+
+        let term1 = gamma * (alpha_i - mu_a_i * (chi_exp + 1.0)) + beta;
+        let term2 = 4.0 * alpha_i * beta * gamma * chi_exp;
+        let discriminant = term1 * term1 + term2;
+
+        if discriminant < 0.0 {
+            chi_exp
+        } else {
+            (-term1 + discriminant.sqrt()) / (2.0 * beta)
+        }
+    }
+
+    fn solve_chi_exp_thin(
+        &self,
+        i: usize,
+        chi_true: f64,
+        density: f64,
+        thickness_um: f64,
+    ) -> Result<f64, SelfAbsError> {
+        let f = |x: f64| self.correct_single_thin(i, x, density, thickness_um) - chi_true;
+
+        // Fast local solve near the physical branch.
+        let mut x = chi_true;
+        for _ in 0..20 {
+            let fx = f(x);
+            if !fx.is_finite() {
+                break;
+            }
+            if fx.abs() < 1e-12 {
+                return Ok(x);
+            }
+            let h = 1e-6 * x.abs().max(1.0);
+            let df = (f(x + h) - f(x - h)) / (2.0 * h);
+            if !df.is_finite() || df.abs() < 1e-12 {
+                break;
+            }
+            let x_next = (x - fx / df).clamp(-0.999_999, 10.0);
+            if !x_next.is_finite() {
+                break;
+            }
+            if (x_next - x).abs() < 1e-12 {
+                return Ok(x_next);
+            }
+            x = x_next;
+        }
+
+        // Robust fallback: bracket + bisection.
+        let mut lo = -0.999_999;
+        let mut hi = (chi_true.max(0.0) + 1.0) * 2.0;
+        let mut flo = f(lo);
+        let mut fhi = f(hi);
+
+        let mut bracketed = flo.is_finite() && fhi.is_finite() && flo * fhi <= 0.0;
+        if !bracketed {
+            for _ in 0..40 {
+                hi *= 2.0;
+                if hi > 1e6 {
+                    break;
+                }
+                fhi = f(hi);
+                bracketed = flo.is_finite() && fhi.is_finite() && flo * fhi <= 0.0;
+                if bracketed {
+                    break;
+                }
+            }
+        }
+
+        if !bracketed {
+            return Err(SelfAbsError::InsufficientData(format!(
+                "failed to bracket thin Booth inversion at index {i}"
+            )));
+        }
+
+        for _ in 0..80 {
+            let mid = 0.5 * (lo + hi);
+            let fmid = f(mid);
+            if !fmid.is_finite() {
+                return Err(SelfAbsError::InsufficientData(format!(
+                    "non-finite thin Booth inversion function at index {i}"
+                )));
+            }
+            if fmid.abs() < 1e-12 || (hi - lo).abs() < 1e-10 {
+                return Ok(mid);
+            }
+            if flo * fmid <= 0.0 {
+                hi = mid;
+            } else {
+                lo = mid;
+                flo = fmid;
+            }
+        }
+
+        Ok(0.5 * (lo + hi))
     }
 }
 
@@ -201,6 +338,46 @@ mod tests {
             if result.k[i] > 0.0 && orig > 0.001 {
                 assert!(corr >= orig, "corrected={corr} < original={orig}");
             }
+        }
+    }
+
+    #[test]
+    fn test_booth_thick_suppression_matches_closed_form() {
+        let energies: Vec<f64> = (7100..=8000).step_by(5).map(|e| e as f64).collect();
+        let result = booth("Fe2O3", "Fe", "K", &energies, None, 100_000.0).unwrap();
+        assert!(result.is_thick);
+
+        let chi_true = 0.2;
+        let r = result
+            .suppression_factor(chi_true, 5.24, 100_000.0)
+            .unwrap();
+
+        for (i, &ri) in r.iter().enumerate() {
+            let si = result.s[i];
+            let expected = (1.0 - si) / (1.0 + si * chi_true);
+            assert!((ri - expected).abs() < 1e-12, "i={i}, ri={ri}, expected={expected}");
+        }
+    }
+
+    #[test]
+    fn test_booth_thin_suppression_roundtrip() {
+        let energies: Vec<f64> = (7100..=7600).step_by(5).map(|e| e as f64).collect();
+        let thickness_um = 10.0;
+        let density = 5.24;
+        let chi_true = 0.2;
+
+        let result = booth("Fe2O3", "Fe", "K", &energies, None, thickness_um).unwrap();
+        assert!(!result.is_thick);
+
+        let r = result
+            .suppression_factor(chi_true, density, thickness_um)
+            .unwrap();
+        assert!(r.iter().all(|v| v.is_finite() && *v > 0.0));
+
+        let chi_exp: Vec<f64> = r.iter().map(|ri| ri * chi_true).collect();
+        let chi_corr = result.correct_chi(&chi_exp, density, thickness_um);
+        for (i, &c) in chi_corr.iter().enumerate() {
+            assert!((c - chi_true).abs() < 1e-6, "roundtrip mismatch at {i}: {c}");
         }
     }
 }
