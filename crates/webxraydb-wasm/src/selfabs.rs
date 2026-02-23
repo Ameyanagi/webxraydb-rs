@@ -96,6 +96,7 @@ pub fn sa_booth(
 /// Ameyanagi algorithm.
 /// Computes exact suppression factor R(E, χ) from the full Booth expression.
 #[wasm_bindgen]
+#[allow(clippy::too_many_arguments)]
 pub fn sa_ameyanagi(
     formula: &str,
     central_element: &str,
@@ -129,11 +130,13 @@ pub fn sa_ameyanagi(
         central_element,
         edge,
         energies,
-        density_g_cm3,
-        phi_rad,
-        theta_rad,
-        thickness_input,
-        chi_assumed,
+        selfabs::ameyanagi::AmeyanagiSuppressionSettings {
+            density_g_cm3,
+            phi_rad,
+            theta_rad,
+            thickness_input,
+            chi_assumed,
+        },
     )
     .map_err(|e| JsError::new(&e.to_string()))?;
 

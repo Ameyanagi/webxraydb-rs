@@ -92,6 +92,21 @@ pub struct AmeyanagiSuppressionResult {
     pub fluorescence_energy_weighted: f64,
 }
 
+/// Settings for Ameyanagi exact suppression evaluation.
+#[derive(Debug, Clone, Copy)]
+pub struct AmeyanagiSuppressionSettings {
+    /// Effective sample density in g/cm^3.
+    pub density_g_cm3: f64,
+    /// Incident angle φ in radians.
+    pub phi_rad: f64,
+    /// Fluorescence exit angle θ in radians.
+    pub theta_rad: f64,
+    /// Sample thickness input.
+    pub thickness_input: AmeyanagiThicknessInput,
+    /// Assumed finite EXAFS amplitude χ.
+    pub chi_assumed: f64,
+}
+
 /// Compute exact self-absorption suppression factor:
 ///
 /// ```text
@@ -115,12 +130,14 @@ pub fn ameyanagi_suppression_exact(
     central_element: &str,
     edge: &str,
     energies_ev: &[f64],
-    density_g_cm3: f64,
-    phi_rad: f64,
-    theta_rad: f64,
-    thickness_input: AmeyanagiThicknessInput,
-    chi_assumed: f64,
+    settings: AmeyanagiSuppressionSettings,
 ) -> Result<AmeyanagiSuppressionResult, SelfAbsError> {
+    let density_g_cm3 = settings.density_g_cm3;
+    let phi_rad = settings.phi_rad;
+    let theta_rad = settings.theta_rad;
+    let thickness_input = settings.thickness_input;
+    let chi_assumed = settings.chi_assumed;
+
     if energies_ev.is_empty() {
         return Err(SelfAbsError::InsufficientData(
             "energy grid must not be empty".to_string(),
@@ -352,11 +369,13 @@ mod tests {
             "Fe",
             "K",
             &energies(),
-            5.24,
-            std::f64::consts::FRAC_PI_4,
-            std::f64::consts::FRAC_PI_4,
-            AmeyanagiThicknessInput::ThicknessCm(0.01),
-            0.2,
+            AmeyanagiSuppressionSettings {
+                density_g_cm3: 5.24,
+                phi_rad: std::f64::consts::FRAC_PI_4,
+                theta_rad: std::f64::consts::FRAC_PI_4,
+                thickness_input: AmeyanagiThicknessInput::ThicknessCm(0.01),
+                chi_assumed: 0.2,
+            },
         )
         .unwrap();
 
@@ -378,11 +397,13 @@ mod tests {
             "Fe",
             "K",
             &energies(),
-            density,
-            std::f64::consts::FRAC_PI_4,
-            std::f64::consts::FRAC_PI_4,
-            AmeyanagiThicknessInput::ThicknessCm(d),
-            0.2,
+            AmeyanagiSuppressionSettings {
+                density_g_cm3: density,
+                phi_rad: std::f64::consts::FRAC_PI_4,
+                theta_rad: std::f64::consts::FRAC_PI_4,
+                thickness_input: AmeyanagiThicknessInput::ThicknessCm(d),
+                chi_assumed: 0.2,
+            },
         )
         .unwrap();
 
@@ -391,14 +412,16 @@ mod tests {
             "Fe",
             "K",
             &energies(),
-            density,
-            std::f64::consts::FRAC_PI_4,
-            std::f64::consts::FRAC_PI_4,
-            AmeyanagiThicknessInput::PelletMassDiameter {
-                mass_g: mass,
-                diameter_cm: diameter,
+            AmeyanagiSuppressionSettings {
+                density_g_cm3: density,
+                phi_rad: std::f64::consts::FRAC_PI_4,
+                theta_rad: std::f64::consts::FRAC_PI_4,
+                thickness_input: AmeyanagiThicknessInput::PelletMassDiameter {
+                    mass_g: mass,
+                    diameter_cm: diameter,
+                },
+                chi_assumed: 0.2,
             },
-            0.2,
         )
         .unwrap();
 
@@ -413,11 +436,13 @@ mod tests {
             "Fe",
             "K",
             &energies(),
-            5.24,
-            std::f64::consts::FRAC_PI_4,
-            std::f64::consts::FRAC_PI_4,
-            AmeyanagiThicknessInput::ThicknessCm(1e-4),
-            0.2,
+            AmeyanagiSuppressionSettings {
+                density_g_cm3: 5.24,
+                phi_rad: std::f64::consts::FRAC_PI_4,
+                theta_rad: std::f64::consts::FRAC_PI_4,
+                thickness_input: AmeyanagiThicknessInput::ThicknessCm(1e-4),
+                chi_assumed: 0.2,
+            },
         )
         .unwrap();
 
@@ -426,11 +451,13 @@ mod tests {
             "Fe",
             "K",
             &energies(),
-            5.24,
-            std::f64::consts::FRAC_PI_4,
-            std::f64::consts::FRAC_PI_4,
-            AmeyanagiThicknessInput::ThicknessCm(0.2),
-            0.2,
+            AmeyanagiSuppressionSettings {
+                density_g_cm3: 5.24,
+                phi_rad: std::f64::consts::FRAC_PI_4,
+                theta_rad: std::f64::consts::FRAC_PI_4,
+                thickness_input: AmeyanagiThicknessInput::ThicknessCm(0.2),
+                chi_assumed: 0.2,
+            },
         )
         .unwrap();
 
@@ -444,11 +471,13 @@ mod tests {
             "Fe",
             "K",
             &energies(),
-            5.24,
-            std::f64::consts::FRAC_PI_4,
-            std::f64::consts::FRAC_PI_4,
-            AmeyanagiThicknessInput::ThicknessCm(0.01),
-            0.0,
+            AmeyanagiSuppressionSettings {
+                density_g_cm3: 5.24,
+                phi_rad: std::f64::consts::FRAC_PI_4,
+                theta_rad: std::f64::consts::FRAC_PI_4,
+                thickness_input: AmeyanagiThicknessInput::ThicknessCm(0.01),
+                chi_assumed: 0.0,
+            },
         )
         .unwrap_err();
         assert!(format!("{e}").contains("chi"));

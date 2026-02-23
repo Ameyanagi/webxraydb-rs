@@ -137,6 +137,8 @@ interface SelfAbsData {
   energyTraces: PlotTrace[];
   /** Signal retained (%) vs k (only above-edge points). */
   kTraces: PlotTrace[];
+  /** Exact Ameyanagi ratio R(E, χ) = χ_exp/χ vs energy. */
+  ameyanagiRTraces: PlotTrace[];
   summary: SummaryInfo[];
 }
 
@@ -416,6 +418,7 @@ function SelfAbsorptionPage() {
       const energyArr = Array.from(energies);
       const energyTraces: PlotTrace[] = [];
       const kTraces: PlotTrace[] = [];
+      const ameyanagiRTraces: PlotTrace[] = [];
       const summary: SummaryInfo[] = [];
       let colorIdx = 0;
 
@@ -468,6 +471,7 @@ function SelfAbsorptionPage() {
               : `Ameyanagi χ=${chiLabel}`;
             const line = { color, width: 2, dash: "dashdot" as const };
             energyTraces.push({ x: energyArr, y: pct, name, line });
+            ameyanagiRTraces.push({ x: energyArr, y: rValues, name, line });
             toKTrace(energyArr, pct, r.edge_energy, name, line);
             summary.push({
               algorithm: name,
@@ -585,7 +589,7 @@ function SelfAbsorptionPage() {
         }
       }
 
-      return readyState({ energyTraces, kTraces, summary });
+      return readyState({ energyTraces, kTraces, ameyanagiRTraces, summary });
     } catch (e: unknown) {
       return errorState(e instanceof Error ? e.message : String(e));
     }
@@ -955,6 +959,17 @@ function SelfAbsorptionPage() {
 
         {/* Results */}
         <div className="order-1 space-y-4 lg:order-none">
+          {(calcState.data?.ameyanagiRTraces?.length ?? 0) > 0 && (
+            <ScientificPlot
+              traces={calcState.data?.ameyanagiRTraces ?? []}
+              xTitle="Energy (eV)"
+              yTitle="R(E, χ) = χexp/χ"
+              title={`Ameyanagi exact ratio vs Energy${ameyanagiSweepActive ? " (multi-χ)" : ""}`}
+              height={380}
+              showLogToggle={false}
+            />
+          )}
+
           <ScientificPlot
             traces={calcState.data?.energyTraces ?? []}
             xTitle="Energy (eV)"
