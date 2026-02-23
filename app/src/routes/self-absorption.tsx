@@ -5,6 +5,7 @@ import {
   sa_fluo,
   sa_troger,
   sa_booth,
+  sa_ameyanagi,
   sa_atoms,
   parse_formula,
   validate_formula,
@@ -27,9 +28,10 @@ export const Route = createFileRoute("/self-absorption")({
   component: SelfAbsorptionPage,
 });
 
-type Algorithm = "fluo" | "troger" | "booth" | "atoms";
+type Algorithm = "ameyanagi" | "fluo" | "troger" | "booth" | "atoms";
 
 const ALGORITHMS: { value: Algorithm; label: string; description: string }[] = [
+  { value: "ameyanagi", label: "Ameyanagi", description: "Exact Booth suppression factor from full equation" },
   { value: "fluo", label: "Fluo", description: "Haskel, Ravel, Stern — corrects \u03bc(E), works for XANES" },
   { value: "troger", label: "Tr\u00f6ger", description: "Tr\u00f6ger et al. (1992) — simple \u03c7(k) correction" },
   { value: "booth", label: "Booth", description: "Booth & Bridges (2005) — thin + thick samples" },
@@ -142,6 +144,15 @@ interface SummaryInfo {
   algorithm: string;
   edgeEnergy: number;
   fluorEnergy: number;
+  rMin?: number;
+  rMax?: number;
+  rMean?: number;
+  interpretation?: string;
+  thicknessCm?: number;
+  geometryG?: number;
+  chiAssumed?: number;
+  muF?: number;
+  betaPath?: number;
   amplitude?: number;
   sigmaSquared?: number;
   sigmaSquaredSelf?: number;
@@ -153,9 +164,15 @@ interface SummaryInfo {
   isThick?: boolean;
 }
 
-const COLORS = ["#3b82f6", "#ef4444", "#22c55e", "#f59e0b"];
+const COLORS = ["#3b82f6", "#ef4444", "#22c55e", "#f59e0b", "#14b8a6"];
 
 const EDGE_OPTIONS = ["K", "L3", "L2", "L1", "M5", "M4", "M3"] as const;
+
+type ThicknessMode = "thickness" | "pellet";
+type AmeyanagiChiMode = "single" | "sweep";
+
+const AMEYANAGI_CHI_PRESETS = [0.05, 0.1, 0.2, 0.3] as const;
+const AMEYANAGI_MAX_CHI_VALUES = 8;
 
 /** Given an element, pick the best edge and return [availableEdges, bestEdge]. */
 function pickEdge(el: string): [string[], string] {
@@ -166,6 +183,63 @@ function pickEdge(el: string): [string[], string] {
   if (filtered.length === 0) return [["K"], "K"];
   // Pick lowest-energy common edge (last in EDGE_OPTIONS order, which lists high→low)
   return [[...filtered], filtered[filtered.length - 1]];
+}
+
+function classifySuppression(r: number): string {
+  if (r > 0.9) return "Negligible";
+  if (r >= 0.7) return "Moderate";
+  if (r >= 0.5) return "Strong";
+  return "Severe";
+}
+
+function formatChi(chi: number): string {
+  return chi.toFixed(3).replace(/\.?0+$/, "");
+}
+
+function normalizeChiSweep(values: number[]): number[] {
+  const sorted = [...values].sort((a, b) => a - b);
+  const deduped: number[] = [];
+  for (const v of sorted) {
+    if (deduped.length === 0 || Math.abs(v - deduped[deduped.length - 1]) > 1e-12) {
+      deduped.push(v);
+    }
+  }
+  return deduped;
+}
+
+function parseChiSweepList(input: string): { values: number[]; error: string | null } {
+  const tokens = input
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean);
+
+  if (tokens.length === 0) {
+    return { values: [], error: "Enter at least one comma-separated χ value" };
+  }
+
+  const parsed: number[] = [];
+  for (const token of tokens) {
+    const v = Number(token);
+    if (!Number.isFinite(v)) {
+      return { values: [], error: `Invalid χ value: ${token}` };
+    }
+    if (v <= 0) {
+      return { values: [], error: "All χ values must be > 0" };
+    }
+    if (v > 1.0) {
+      return { values: [], error: "χ values above 1.0 are not allowed in sweep mode" };
+    }
+    parsed.push(v);
+  }
+
+  const values = normalizeChiSweep(parsed);
+  if (values.length > AMEYANAGI_MAX_CHI_VALUES) {
+    return {
+      values: [],
+      error: `Too many χ values (max ${AMEYANAGI_MAX_CHI_VALUES})`,
+    };
+  }
+  return { values, error: null };
 }
 
 function SelfAbsorptionPage() {
@@ -181,7 +255,21 @@ function SelfAbsorptionPage() {
   const [thetaIn, setThetaIn] = useState(45);
   const [thetaOut, setThetaOut] = useState(45);
   const [thicknessUm, setThicknessUm] = useState(100000);
+  const [densityGcm3, setDensityGcm3] = useState(5.24);
+  const [phiRad, setPhiRad] = useState(Math.PI / 4);
+  const [thetaRad, setThetaRad] = useState(Math.PI / 4);
+  const [chiAssumed, setChiAssumed] = useState(0.2);
+  const [ameyanagiChiMode, setAmeyanagiChiMode] = useState<AmeyanagiChiMode>("single");
+  const [chiSweepPresets, setChiSweepPresets] = useState<number[]>([...AMEYANAGI_CHI_PRESETS]);
+  const [chiSweepCustomInput, setChiSweepCustomInput] = useState("");
+  const [chiSweepCustomValues, setChiSweepCustomValues] = useState<number[]>([]);
+  const [chiSweepCustomError, setChiSweepCustomError] = useState<string | null>(null);
+  const [thicknessMode, setThicknessMode] = useState<ThicknessMode>("thickness");
+  const [thicknessCm, setThicknessCm] = useState(0.01);
+  const [pelletMassG, setPelletMassG] = useState(0.05);
+  const [pelletDiameterCm, setPelletDiameterCm] = useState(1.0);
   const [selectedAlgos, setSelectedAlgos] = useState<Algorithm[]>([
+    "ameyanagi",
     "troger",
     "booth",
     "atoms",
@@ -191,6 +279,31 @@ function SelfAbsorptionPage() {
     setSelectedAlgos((prev) =>
       prev.includes(algo) ? prev.filter((a) => a !== algo) : [...prev, algo],
     );
+  };
+
+  const toggleChiPreset = (chi: number) => {
+    setChiSweepCustomError(null);
+    setChiSweepPresets((prev) => {
+      const next = prev.includes(chi) ? prev.filter((v) => v !== chi) : [...prev, chi];
+      return normalizeChiSweep(next);
+    });
+  };
+
+  const applyCustomChiSweep = () => {
+    const parsed = parseChiSweepList(chiSweepCustomInput);
+    if (parsed.error) {
+      setChiSweepCustomError(parsed.error);
+      setChiSweepCustomValues([]);
+      return;
+    }
+    setChiSweepCustomError(null);
+    setChiSweepCustomValues(parsed.values);
+  };
+
+  const clearCustomChiSweep = () => {
+    setChiSweepCustomInput("");
+    setChiSweepCustomValues([]);
+    setChiSweepCustomError(null);
   };
 
   // Sync all derived state when formula changes
@@ -269,6 +382,32 @@ function SelfAbsorptionPage() {
     if (!edge.trim()) return errorState("Enter the absorption edge");
     if (selectedAlgos.length === 0) return errorState("Select at least one algorithm");
 
+    const ameyanagiChiSweepValues = chiSweepCustomValues.length > 0
+      ? chiSweepCustomValues
+      : chiSweepPresets;
+
+    if (selectedAlgos.includes("ameyanagi")) {
+      if (!(densityGcm3 > 0)) return errorState("Density must be > 0 g/cm³ for Ameyanagi");
+      if (!(phiRad > 0 && phiRad < Math.PI)) return errorState("Incident angle φ must be in radians and between 0 and π");
+      if (!(thetaRad > 0 && thetaRad < Math.PI)) return errorState("Exit angle θ must be in radians and between 0 and π");
+      if (ameyanagiChiMode === "single") {
+        if (!(Number.isFinite(chiAssumed) && chiAssumed > 0)) {
+          return errorState("Assumed χ must be finite and > 0 for Ameyanagi");
+        }
+      } else {
+        if (chiSweepCustomError) return errorState(chiSweepCustomError);
+        if (ameyanagiChiSweepValues.length === 0) {
+          return errorState("Select at least one χ value for Ameyanagi sweep");
+        }
+      }
+      if (thicknessMode === "thickness" && !(thicknessCm > 0)) {
+        return errorState("Thickness (cm) must be > 0 for Ameyanagi");
+      }
+      if (thicknessMode === "pellet" && (!(pelletMassG > 0) || !(pelletDiameterCm > 0))) {
+        return errorState("Pellet mass and diameter must be > 0 for Ameyanagi");
+      }
+    }
+
     const range = validateRange(eStart, eEnd, eStep, 30000);
     if (!range.valid) return errorState(range.error ?? "Invalid energy range");
 
@@ -300,10 +439,54 @@ function SelfAbsorptionPage() {
       };
 
       for (const algo of selectedAlgos) {
-        const color = COLORS[colorIdx % COLORS.length];
-        colorIdx++;
+        if (algo === "ameyanagi") {
+          const chiValues = ameyanagiChiMode === "single"
+            ? [chiAssumed]
+            : ameyanagiChiSweepValues;
 
-        if (algo === "fluo") {
+          for (const chi of chiValues) {
+            const color = COLORS[colorIdx % COLORS.length];
+            colorIdx++;
+            const r = sa_ameyanagi(
+              formula.trim(),
+              element.trim(),
+              edge.trim(),
+              energies,
+              densityGcm3,
+              phiRad,
+              thetaRad,
+              thicknessMode === "thickness" ? thicknessCm : undefined,
+              thicknessMode === "pellet" ? pelletMassG : undefined,
+              thicknessMode === "pellet" ? pelletDiameterCm : undefined,
+              chi,
+            );
+            const rValues = r.suppression_factor as number[];
+            const pct = rValues.map((v: number) => v * 100);
+            const chiLabel = formatChi(chi);
+            const name = ameyanagiChiMode === "single"
+              ? "Ameyanagi"
+              : `Ameyanagi χ=${chiLabel}`;
+            const line = { color, width: 2, dash: "dashdot" as const };
+            energyTraces.push({ x: energyArr, y: pct, name, line });
+            toKTrace(energyArr, pct, r.edge_energy, name, line);
+            summary.push({
+              algorithm: name,
+              edgeEnergy: r.edge_energy,
+              fluorEnergy: r.fluorescence_energy_weighted,
+              rMin: r.r_min,
+              rMax: r.r_max,
+              rMean: r.r_mean,
+              interpretation: classifySuppression(r.r_mean),
+              thicknessCm: r.thickness_cm,
+              geometryG: r.geometry_g,
+              chiAssumed: chi,
+              muF: r.mu_f,
+              betaPath: r.beta,
+            });
+          }
+        } else if (algo === "fluo") {
+          const color = COLORS[colorIdx % COLORS.length];
+          colorIdx++;
           const r = sa_fluo(
             formula.trim(),
             element.trim(),
@@ -327,9 +510,9 @@ function SelfAbsorptionPage() {
             beta: r.beta,
             gammaPrime: r.gamma_prime,
           });
-        }
-
-        if (algo === "troger") {
+        } else if (algo === "troger") {
+          const color = COLORS[colorIdx % COLORS.length];
+          colorIdx++;
           const r = sa_troger(
             formula.trim(),
             element.trim(),
@@ -349,9 +532,9 @@ function SelfAbsorptionPage() {
             edgeEnergy: r.edge_energy,
             fluorEnergy: r.fluorescence_energy,
           });
-        }
-
-        if (algo === "booth") {
+        } else if (algo === "booth") {
+          const color = COLORS[colorIdx % COLORS.length];
+          colorIdx++;
           const r = sa_booth(
             formula.trim(),
             element.trim(),
@@ -374,9 +557,9 @@ function SelfAbsorptionPage() {
             fluorEnergy: r.fluorescence_energy,
             isThick: r.is_thick,
           });
-        }
-
-        if (algo === "atoms") {
+        } else if (algo === "atoms") {
+          const color = COLORS[colorIdx % COLORS.length];
+          colorIdx++;
           const r = sa_atoms(
             formula.trim(),
             element.trim(),
@@ -417,16 +600,30 @@ function SelfAbsorptionPage() {
     thetaIn,
     thetaOut,
     thicknessUm,
+    densityGcm3,
+    phiRad,
+    thetaRad,
+    chiAssumed,
+    ameyanagiChiMode,
+    chiSweepPresets,
+    chiSweepCustomValues,
+    chiSweepCustomError,
+    thicknessMode,
+    thicknessCm,
+    pelletMassG,
+    pelletDiameterCm,
     selectedAlgos,
   ]);
 
   if (!ready) return <LoadingState />;
+  const ameyanagiSweepActive =
+    selectedAlgos.includes("ameyanagi") && ameyanagiChiMode === "sweep";
 
   return (
     <div>
       <PageHeader
         title="Self Absorption"
-        description="Fluorescence self-absorption correction using 4 algorithms (Fluo, Tr\u00f6ger, Booth, Atoms)."
+        description="Fluorescence self-absorption analysis with 5 algorithms, including exact Ameyanagi suppression."
       />
 
       <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-[320px_1fr]">
@@ -515,6 +712,210 @@ function SelfAbsorptionPage() {
             </div>
           </div>
 
+          <div className="space-y-3 rounded-md border border-border/50 p-3">
+            <div className="text-sm font-semibold">Ameyanagi (exact)</div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-sm font-medium">Density</label>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    value={densityGcm3}
+                    min={0.001}
+                    step={0.01}
+                    onChange={(e) => setDensityGcm3(Number(e.target.value))}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                  <span className="text-xs text-muted-foreground">g/cm³</span>
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium">χ mode</label>
+                <select
+                  value={ameyanagiChiMode}
+                  onChange={(e) => setAmeyanagiChiMode(e.target.value as AmeyanagiChiMode)}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="single">Single χ</option>
+                  <option value="sweep">Sweep χ</option>
+                </select>
+              </div>
+            </div>
+
+            {ameyanagiChiMode === "single" ? (
+              <div>
+                <label className="mb-1 block text-sm font-medium">Assumed χ</label>
+                <input
+                  type="number"
+                  value={chiAssumed}
+                  min={0.001}
+                  max={1}
+                  step={0.01}
+                  onChange={(e) => setChiAssumed(Number(e.target.value))}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div>
+                  <label className="mb-1 block text-sm font-medium">Preset χ values</label>
+                  <div className="flex flex-wrap gap-2">
+                    {AMEYANAGI_CHI_PRESETS.map((chi) => {
+                      const active = chiSweepPresets.includes(chi);
+                      return (
+                        <button
+                          key={chi}
+                          type="button"
+                          onClick={() => toggleChiPreset(chi)}
+                          className={`rounded px-2 py-1 text-xs ${
+                            active
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                          }`}
+                        >
+                          {formatChi(chi)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium">
+                    Custom χ list (comma-separated)
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={chiSweepCustomInput}
+                      onChange={(e) => {
+                        setChiSweepCustomInput(e.target.value);
+                        setChiSweepCustomError(null);
+                      }}
+                      placeholder="e.g. 0.07, 0.15, 0.25"
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                    <button
+                      type="button"
+                      onClick={applyCustomChiSweep}
+                      className="rounded bg-primary px-3 py-2 text-xs font-medium text-primary-foreground"
+                    >
+                      Apply
+                    </button>
+                    <button
+                      type="button"
+                      onClick={clearCustomChiSweep}
+                      className="rounded bg-secondary px-3 py-2 text-xs font-medium text-secondary-foreground"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  {chiSweepCustomError && (
+                    <p className="mt-1 text-xs text-destructive">{chiSweepCustomError}</p>
+                  )}
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Active χ: {(
+                      chiSweepCustomValues.length > 0 ? chiSweepCustomValues : chiSweepPresets
+                    ).map(formatChi).join(", ") || "none"}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-sm font-medium">Incident φ</label>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    value={phiRad}
+                    min={0.001}
+                    max={3.13}
+                    step={0.01}
+                    onChange={(e) => setPhiRad(Number(e.target.value))}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                  <span className="text-xs text-muted-foreground">rad</span>
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium">Exit θ</label>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    value={thetaRad}
+                    min={0.001}
+                    max={3.13}
+                    step={0.01}
+                    onChange={(e) => setThetaRad(Number(e.target.value))}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                  <span className="text-xs text-muted-foreground">rad</span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium">Thickness input</label>
+              <select
+                value={thicknessMode}
+                onChange={(e) => setThicknessMode(e.target.value as ThicknessMode)}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="thickness">Direct thickness (cm)</option>
+                <option value="pellet">Pellet mass + diameter</option>
+              </select>
+            </div>
+
+            {thicknessMode === "thickness" ? (
+              <div>
+                <label className="mb-1 block text-sm font-medium">Thickness</label>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    value={thicknessCm}
+                    min={1e-6}
+                    step={0.001}
+                    onChange={(e) => setThicknessCm(Number(e.target.value))}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                  <span className="text-xs text-muted-foreground">cm</span>
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-sm font-medium">Pellet mass</label>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      value={pelletMassG}
+                      min={1e-6}
+                      step={0.001}
+                      onChange={(e) => setPelletMassG(Number(e.target.value))}
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                    <span className="text-xs text-muted-foreground">g</span>
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium">Pellet diameter</label>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      value={pelletDiameterCm}
+                      min={1e-6}
+                      step={0.01}
+                      onChange={(e) => setPelletDiameterCm(Number(e.target.value))}
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                    <span className="text-xs text-muted-foreground">cm</span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
           <EnergyRangeInput
             start={eStart}
             end={eEnd}
@@ -558,7 +959,7 @@ function SelfAbsorptionPage() {
             traces={calcState.data?.energyTraces ?? []}
             xTitle="Energy (eV)"
             yTitle="Signal retained (%)"
-            title="Self-absorption effect vs Energy (100% = no effect)"
+            title={`Self-absorption effect vs Energy (100% = no effect${ameyanagiSweepActive ? ", Ameyanagi multi-χ" : ""})`}
             height={380}
             showLogToggle={false}
             yRange={[0, 105]}
@@ -568,7 +969,7 @@ function SelfAbsorptionPage() {
             traces={calcState.data?.kTraces ?? []}
             xTitle="k (\u00c5\u207b\u00b9)"
             yTitle="Signal retained (%)"
-            title="Self-absorption effect vs k (100% = no effect)"
+            title={`Self-absorption effect vs k (100% = no effect${ameyanagiSweepActive ? ", Ameyanagi multi-χ" : ""})`}
             height={380}
             showLogToggle={false}
             yRange={[0, 105]}
@@ -580,8 +981,8 @@ function SelfAbsorptionPage() {
             <div className="rounded-lg border border-border bg-card p-4">
               <h3 className="mb-3 text-sm font-semibold">Summary</h3>
               <div className="space-y-3">
-                {calcState.data.summary.map((s) => (
-                  <SummaryCard key={s.algorithm} info={s} />
+                {calcState.data.summary.map((s, idx) => (
+                  <SummaryCard key={`${s.algorithm}-${s.chiAssumed ?? "na"}-${idx}`} info={s} />
                 ))}
               </div>
             </div>
@@ -613,6 +1014,33 @@ function SummaryCard({ info }: { info: SummaryInfo }) {
         )}
         {info.isThick != null && (
           <Stat label="Sample limit" value={info.isThick ? "Thick" : "Thin"} />
+        )}
+        {info.rMin != null && (
+          <Stat label="R min" value={info.rMin.toFixed(4)} />
+        )}
+        {info.rMax != null && (
+          <Stat label="R max" value={info.rMax.toFixed(4)} />
+        )}
+        {info.rMean != null && (
+          <Stat label="R mean" value={info.rMean.toFixed(4)} />
+        )}
+        {info.interpretation != null && (
+          <Stat label="Suppression" value={info.interpretation} />
+        )}
+        {info.thicknessCm != null && (
+          <Stat label="Thickness" value={`${info.thicknessCm.toExponential(3)} cm`} />
+        )}
+        {info.geometryG != null && (
+          <Stat label="g = sinφ/sinθ" value={info.geometryG.toFixed(4)} />
+        )}
+        {info.betaPath != null && (
+          <Stat label="β = d/sinφ" value={`${info.betaPath.toExponential(3)} cm`} />
+        )}
+        {info.muF != null && (
+          <Stat label="μ_f" value={`${info.muF.toFixed(4)} cm⁻¹`} />
+        )}
+        {info.chiAssumed != null && (
+          <Stat label="Assumed χ" value={info.chiAssumed.toFixed(4)} />
         )}
         {info.sigmaSquaredSelf != null && (
           <Stat

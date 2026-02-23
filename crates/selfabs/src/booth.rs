@@ -7,8 +7,8 @@
 use xraydb::XrayDb;
 
 use crate::common::{
-    energies_to_k, weighted_mu_absorber, weighted_mu_total, weighted_mu_total_single,
-    FluorescenceGeometry, SampleInfo, SelfAbsError,
+    FluorescenceGeometry, SampleInfo, SelfAbsError, energies_to_k, weighted_mu_absorber,
+    weighted_mu_total, weighted_mu_total_single,
 };
 
 /// Thickness threshold (μm) for thin vs. thick determination.
@@ -23,10 +23,12 @@ pub struct BoothResult {
     pub k: Vec<f64>,
     /// Whether thick-sample formula was used.
     pub is_thick: bool,
-    /// s(k) = μ_a(k) / α(k) at each point.
+    /// s(k) = μ̄_a(k) / α(k) at each point.
     pub s: Vec<f64>,
-    /// α(k) = μ_total(k) + g × μ_f at each point.
+    /// α(k) = μ_total(k) + g × μ_f at each point (cm²/g-equiv).
     pub alpha: Vec<f64>,
+    /// sin(θ_incident) — stored for correct_chi thin-sample correction.
+    pub sin_phi: f64,
     /// Edge energy (eV).
     pub edge_energy: f64,
     /// Fluorescence energy (eV).
@@ -59,11 +61,7 @@ impl BoothResult {
             .map(|(i, &c)| {
                 let si = self.s[i];
                 let denom = 1.0 - si * (c + 1.0);
-                if denom.abs() > 1e-10 {
-                    c / denom
-                } else {
-                    c
-                }
+                if denom.abs() > 1e-10 { c / denom } else { c }
             })
             .collect()
     }
@@ -76,9 +74,8 @@ impl BoothResult {
             .map(|(i, &c)| {
                 let alpha_i = self.alpha[i] * density;
                 let mu_a_i = self.s[i] * alpha_i;
-                // η = thickness × α / sin(θ_in)
-                // We store α without sin factor, so use α directly with thickness_cm
-                let eta = thickness_cm * alpha_i;
+                // η = α × d / sin(φ)  [paper Eq. 5]
+                let eta = alpha_i * thickness_cm / self.sin_phi;
                 let exp_neg_eta = (-eta).exp();
                 let beta = mu_a_i * exp_neg_eta * eta;
                 let gamma = 1.0 - exp_neg_eta;
@@ -145,8 +142,9 @@ pub fn booth(
         s.push(si);
     }
 
-    // Determine thick vs thin: effective path = thickness / sin(θ_in)
-    let effective_path = thickness_um / geo.theta_incident_deg.to_radians().sin();
+    // Determine thick vs thin: effective path = thickness / sin(φ)
+    let sin_phi = geo.theta_incident_deg.to_radians().sin();
+    let effective_path = thickness_um / sin_phi;
     let is_thick = effective_path >= THICK_LIMIT_UM;
 
     Ok(BoothResult {
@@ -155,6 +153,7 @@ pub fn booth(
         is_thick,
         s,
         alpha,
+        sin_phi,
         edge_energy: info.edge_energy,
         fluorescence_energy: info.fluor_energy,
     })

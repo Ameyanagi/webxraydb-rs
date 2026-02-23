@@ -22,7 +22,10 @@ pub fn ionchamber_fluxes(
     with_compton: bool,
     both_carriers: bool,
 ) -> Result<IonChamberResult, JsError> {
-    let gas_pairs: Vec<(&str, f64)> = gases.iter().map(|g| (g.name.as_str(), g.fraction)).collect();
+    let gas_pairs: Vec<(&str, f64)> = gases
+        .iter()
+        .map(|g| (g.name.as_str(), g.fraction))
+        .collect();
 
     let result = db()
         .ionchamber_fluxes(

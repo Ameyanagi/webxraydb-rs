@@ -61,7 +61,9 @@ pub fn xray_delta_beta(
     density: f64,
     energy: f64,
 ) -> Result<DeltaBetaResult, JsError> {
-    let (delta, beta, atlen) = db().xray_delta_beta(formula, density, energy).map_err(to_js)?;
+    let (delta, beta, atlen) = db()
+        .xray_delta_beta(formula, density, energy)
+        .map_err(to_js)?;
     Ok(DeltaBetaResult {
         delta,
         beta,
@@ -72,11 +74,12 @@ pub fn xray_delta_beta(
 /// Look up a material by name from the built-in database.
 #[wasm_bindgen]
 pub fn find_material(name: &str) -> Option<MaterialInfo> {
-    db().find_material(name).map(|(formula, density)| MaterialInfo {
-        name: name.to_string(),
-        formula: formula.to_string(),
-        density,
-    })
+    db().find_material(name)
+        .map(|(formula, density)| MaterialInfo {
+            name: name.to_string(),
+            formula: formula.to_string(),
+            density,
+        })
 }
 
 /// Returns all materials in the built-in database.
@@ -102,7 +105,11 @@ const MATERIALS: &[(&str, f64, &str)] = &[
     ("argon", 0.001784, "Ar"),
     ("krypton", 0.003749, "Kr"),
     ("xenon", 0.005894, "Xe"),
-    ("air", 0.001225, "(N2)0.7808(O2)0.2095Ar9.34e-3(CO2)4.1e-4Ne1.82e-5He5.24e-6(CH4)1.8e-6Kr1.0e-6(H2)0.5e-6Xe9.e-8"),
+    (
+        "air",
+        0.001225,
+        "(N2)0.7808(O2)0.2095Ar9.34e-3(CO2)4.1e-4Ne1.82e-5He5.24e-6(CH4)1.8e-6Kr1.0e-6(H2)0.5e-6Xe9.e-8",
+    ),
     ("methane", 0.000657, "CH4"),
     ("carbon dioxide", 0.001562, "CO2"),
     ("water", 1.0, "H2O"),
@@ -138,7 +145,11 @@ const MATERIALS: &[(&str, f64, &str)] = &[
     ("yag", 4.56, "Y3Al5O12"),
     ("sapphire", 4.0, "Al2O3"),
     ("ule glass", 2.205, "Si0.925Ti0.075O2"),
-    ("zerodur", 2.53, "Si0.56Al0.5P0.16Li0.04Ti0.02Zr0.02Zn0.03O2.46"),
+    (
+        "zerodur",
+        2.53,
+        "Si0.56Al0.5P0.16Li0.04Ti0.02Zr0.02Zn0.03O2.46",
+    ),
     ("fluorite", 3.18, "CaF2"),
     ("mica", 2.83, "KAl3Si3O12H2"),
     ("fayalite", 4.392, "Fe2SiO4"),

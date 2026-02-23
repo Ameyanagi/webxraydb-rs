@@ -20,8 +20,7 @@ pub struct FluorescenceGeometry {
 impl FluorescenceGeometry {
     /// sin(θ_in) / sin(θ_out).
     pub fn ratio(&self) -> f64 {
-        self.theta_incident_deg.to_radians().sin()
-            / self.theta_fluorescence_deg.to_radians().sin()
+        self.theta_incident_deg.to_radians().sin() / self.theta_fluorescence_deg.to_radians().sin()
     }
 }
 
@@ -78,8 +77,8 @@ impl SampleInfo {
         central_element: &str,
         edge: &str,
     ) -> Result<Self, SelfAbsError> {
-        let parsed = parse_formula(formula)
-            .map_err(|e| SelfAbsError::InvalidFormula(e.to_string()))?;
+        let parsed =
+            parse_formula(formula).map_err(|e| SelfAbsError::InvalidFormula(e.to_string()))?;
         let molecular = parsed
             .to_molecular_formula()
             .map_err(|e| SelfAbsError::InvalidFormula(e.to_string()))?;
@@ -167,25 +166,20 @@ pub(crate) fn weighted_mu_absorber(
     energies: &[f64],
     subtract_pre_edge: bool,
 ) -> Result<Vec<f64>, SelfAbsError> {
-    let mu = db.mu_elam(
-        &info.central_symbol,
-        energies,
-        CrossSectionKind::Photo,
-    )?;
+    let mu = db.mu_elam(&info.central_symbol, energies, CrossSectionKind::Photo)?;
 
     let pre_edge = if subtract_pre_edge {
         let e_below = info.edge_energy - 200.0;
-        let v = db.mu_elam(
-            &info.central_symbol,
-            &[e_below],
-            CrossSectionKind::Photo,
-        )?;
+        let v = db.mu_elam(&info.central_symbol, &[e_below], CrossSectionKind::Photo)?;
         v[0]
     } else {
         0.0
     };
 
-    Ok(mu.iter().map(|&m| info.central_count * (m - pre_edge).max(0.0)).collect())
+    Ok(mu
+        .iter()
+        .map(|&m| info.central_count * (m - pre_edge).max(0.0))
+        .collect())
 }
 
 /// Compute stoichiometry-weighted mu for all non-absorber atoms.

@@ -1,6 +1,6 @@
 use wasm_bindgen::prelude::*;
 
-use crate::types::{AtomsResult, BoothResult, FluoParamsResult, TrogerResult};
+use crate::types::{AmeyanagiResult, AtomsResult, BoothResult, FluoParamsResult, TrogerResult};
 
 fn make_geometry(
     theta_in: Option<f64>,
@@ -78,9 +78,8 @@ pub fn sa_booth(
     thickness_um: f64,
 ) -> Result<BoothResult, JsError> {
     let geo = make_geometry(theta_incident, theta_fluorescence);
-    let r =
-        selfabs::booth::booth(formula, central_element, edge, energies, geo, thickness_um)
-            .map_err(|e| JsError::new(&e.to_string()))?;
+    let r = selfabs::booth::booth(formula, central_element, edge, energies, geo, thickness_um)
+        .map_err(|e| JsError::new(&e.to_string()))?;
 
     Ok(BoothResult {
         energies: r.energies,
@@ -88,8 +87,68 @@ pub fn sa_booth(
         is_thick: r.is_thick,
         s: r.s,
         alpha: r.alpha,
+        sin_phi: r.sin_phi,
         edge_energy: r.edge_energy,
         fluorescence_energy: r.fluorescence_energy,
+    })
+}
+
+/// Ameyanagi algorithm.
+/// Computes exact suppression factor R(E, χ) from the full Booth expression.
+#[wasm_bindgen]
+pub fn sa_ameyanagi(
+    formula: &str,
+    central_element: &str,
+    edge: &str,
+    energies: &[f64],
+    density_g_cm3: f64,
+    phi_rad: f64,
+    theta_rad: f64,
+    thickness_cm: Option<f64>,
+    pellet_mass_g: Option<f64>,
+    pellet_diameter_cm: Option<f64>,
+    chi_assumed: f64,
+) -> Result<AmeyanagiResult, JsError> {
+    let thickness_input = match (thickness_cm, pellet_mass_g, pellet_diameter_cm) {
+        (Some(d), _, _) => selfabs::ameyanagi::AmeyanagiThicknessInput::ThicknessCm(d),
+        (None, Some(m), Some(d)) => {
+            selfabs::ameyanagi::AmeyanagiThicknessInput::PelletMassDiameter {
+                mass_g: m,
+                diameter_cm: d,
+            }
+        }
+        _ => {
+            return Err(JsError::new(
+                "provide thickness_cm, or both pellet_mass_g and pellet_diameter_cm",
+            ));
+        }
+    };
+
+    let r = selfabs::ameyanagi::ameyanagi_suppression_exact(
+        formula,
+        central_element,
+        edge,
+        energies,
+        density_g_cm3,
+        phi_rad,
+        theta_rad,
+        thickness_input,
+        chi_assumed,
+    )
+    .map_err(|e| JsError::new(&e.to_string()))?;
+
+    Ok(AmeyanagiResult {
+        energies: r.energies,
+        suppression_factor: r.suppression_factor,
+        r_min: r.r_min,
+        r_max: r.r_max,
+        r_mean: r.r_mean,
+        mu_f: r.mu_f,
+        thickness_cm: r.thickness_cm,
+        geometry_g: r.geometry_g,
+        beta: r.beta,
+        edge_energy: r.edge_energy,
+        fluorescence_energy_weighted: r.fluorescence_energy_weighted,
     })
 }
 

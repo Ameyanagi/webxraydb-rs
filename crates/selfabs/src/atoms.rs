@@ -10,8 +10,8 @@
 use xraydb::{CrossSectionKind, XrayDb};
 
 use crate::common::{
-    energies_to_k, fit_ln_vs_x, weighted_mu_background, weighted_mu_total_single, SampleInfo,
-    SelfAbsError,
+    SampleInfo, SelfAbsError, energies_to_k, fit_ln_vs_x, weighted_mu_background,
+    weighted_mu_total_single,
 };
 
 /// Result of the Atoms correction calculation.
@@ -84,12 +84,10 @@ pub fn atoms(
 
     // Full mu of central element (no pre-edge subtraction for the Atoms formula)
     let mu_central = {
-        let mu = db.mu_elam(
-            &info.central_symbol,
-            energies,
-            CrossSectionKind::Photo,
-        )?;
-        mu.iter().map(|&m| info.central_count * m).collect::<Vec<_>>()
+        let mu = db.mu_elam(&info.central_symbol, energies, CrossSectionKind::Photo)?;
+        mu.iter()
+            .map(|&m| info.central_count * m)
+            .collect::<Vec<_>>()
     };
 
     let n = energies.len();
@@ -113,13 +111,7 @@ pub fn atoms(
     // --- McMaster normalization correction ---
     // Fits the energy-dependent cross-section of the absorber above the edge
     let mu_central_above: Vec<f64> = (0..n)
-        .map(|i| {
-            if k[i] > 0.0 {
-                mu_central[i]
-            } else {
-                0.0
-            }
-        })
+        .map(|i| if k[i] > 0.0 { mu_central[i] } else { 0.0 })
         .collect();
     let (_, slope_norm) = fit_ln_vs_x(&k, &mu_central_above);
     let sigma_squared_norm = -slope_norm / 2.0;
@@ -185,7 +177,8 @@ mod tests {
         let result = atoms("Fe2O3", "Fe", "K", &energies).unwrap();
 
         // Net σ² should be the sum of components
-        let expected = result.sigma_squared_self + result.sigma_squared_norm + result.sigma_squared_i0;
+        let expected =
+            result.sigma_squared_self + result.sigma_squared_norm + result.sigma_squared_i0;
         assert!(
             (result.sigma_squared_net - expected).abs() < 1e-15,
             "net={}, expected={}",

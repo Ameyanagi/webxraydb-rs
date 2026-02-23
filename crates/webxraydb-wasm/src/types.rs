@@ -149,8 +149,26 @@ pub struct BoothResult {
     pub is_thick: bool,
     pub s: Vec<f64>,
     pub alpha: Vec<f64>,
+    pub sin_phi: f64,
     pub edge_energy: f64,
     pub fluorescence_energy: f64,
+}
+
+/// Ameyanagi algorithm result (exact suppression factor R(E, χ)).
+#[derive(Serialize, Tsify)]
+#[tsify(into_wasm_abi)]
+pub struct AmeyanagiResult {
+    pub energies: Vec<f64>,
+    pub suppression_factor: Vec<f64>,
+    pub r_min: f64,
+    pub r_max: f64,
+    pub r_mean: f64,
+    pub mu_f: f64,
+    pub thickness_cm: f64,
+    pub geometry_g: f64,
+    pub beta: f64,
+    pub edge_energy: f64,
+    pub fluorescence_energy_weighted: f64,
 }
 
 /// Atoms algorithm result (amplitude + σ² correction).

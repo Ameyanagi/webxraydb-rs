@@ -6,8 +6,8 @@
 use xraydb::XrayDb;
 
 use crate::common::{
-    energies_to_k, weighted_mu_absorber, weighted_mu_total, weighted_mu_total_single,
-    FluorescenceGeometry, SampleInfo, SelfAbsError,
+    FluorescenceGeometry, SampleInfo, SelfAbsError, energies_to_k, weighted_mu_absorber,
+    weighted_mu_total, weighted_mu_total_single,
 };
 
 /// Result of the Tröger correction calculation.
@@ -102,7 +102,11 @@ mod tests {
         // s(k) should be between 0 and 1
         for (i, &si) in result.s.iter().enumerate() {
             if result.k[i] > 0.0 {
-                assert!((0.0..1.0).contains(&si), "s={si} out of range at k={}", result.k[i]);
+                assert!(
+                    (0.0..1.0).contains(&si),
+                    "s={si} out of range at k={}",
+                    result.k[i]
+                );
             }
         }
 

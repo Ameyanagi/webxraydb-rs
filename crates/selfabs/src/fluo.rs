@@ -6,8 +6,8 @@
 use xraydb::{CrossSectionKind, XrayDb};
 
 use crate::common::{
-    weighted_mu_background, weighted_mu_total_single, FluorescenceGeometry, SampleInfo,
-    SelfAbsError,
+    FluorescenceGeometry, SampleInfo, SelfAbsError, weighted_mu_background,
+    weighted_mu_total_single,
 };
 
 /// Parameters for the Fluo correction, precomputed from the sample.
@@ -55,11 +55,7 @@ pub fn fluo_params(
 
     // μ_absorber at E+
     let mu_a_plus = {
-        let mu = db.mu_elam(
-            &info.central_symbol,
-            &[e_plus],
-            CrossSectionKind::Photo,
-        )?;
+        let mu = db.mu_elam(&info.central_symbol, &[e_plus], CrossSectionKind::Photo)?;
         info.central_count * mu[0]
     };
 
