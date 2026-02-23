@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use xraydb::chemparser::chemparse;
+use chemical_formula::prelude::parse_formula;
 use xraydb::{CrossSectionKind, XrayDb};
 
 /// Energy-to-k conversion: k (Å⁻¹) = sqrt(ETOK × (E - E₀) [eV]).
@@ -78,8 +78,16 @@ impl SampleInfo {
         central_element: &str,
         edge: &str,
     ) -> Result<Self, SelfAbsError> {
-        let composition =
-            chemparse(formula).map_err(|e| SelfAbsError::InvalidFormula(e.to_string()))?;
+        let parsed = parse_formula(formula)
+            .map_err(|e| SelfAbsError::InvalidFormula(e.to_string()))?;
+        let molecular = parsed
+            .to_molecular_formula()
+            .map_err(|e| SelfAbsError::InvalidFormula(e.to_string()))?;
+        let composition: HashMap<String, f64> = molecular
+            .stoichiometry
+            .iter()
+            .map(|(sym, &count)| (format!("{sym:?}"), count))
+            .collect();
 
         let central_z = db.resolve_element(central_element)?;
         let central_symbol = db.symbol(&central_z.to_string())?.to_string();
@@ -120,10 +128,10 @@ fn find_element_count(
     target_z: u16,
 ) -> Option<f64> {
     for (sym, &count) in composition {
-        if let Ok(z) = db.resolve_element(sym) {
-            if z == target_z {
-                return Some(count);
-            }
+        if let Ok(z) = db.resolve_element(sym)
+            && z == target_z
+        {
+            return Some(count);
         }
     }
     None

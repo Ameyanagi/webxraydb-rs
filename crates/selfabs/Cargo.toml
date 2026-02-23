@@ -7,4 +7,5 @@ description = "Self-absorption correction for fluorescence XAS"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+chemical-formula = "0.1.1"
 xraydb = "0.1"

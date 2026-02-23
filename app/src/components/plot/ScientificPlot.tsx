@@ -35,6 +35,7 @@ interface ScientificPlotProps {
   verticalLines?: PlotAnnotation[];
   xRange?: [number, number];
   yRange?: [number, number];
+  xDtick?: number;
 }
 
 export function ScientificPlot({
@@ -50,6 +51,7 @@ export function ScientificPlot({
   verticalLines,
   xRange,
   yRange,
+  xDtick,
 }: ScientificPlotProps) {
   const isMobile = useIsMobile();
   const { resolvedMode } = useTheme();
@@ -141,6 +143,7 @@ export function ScientificPlot({
           gridcolor: plotColors.gridColor,
           zerolinecolor: plotColors.zerolineColor,
           ...(computedXRange ? { range: computedXRange } : {}),
+          ...(xDtick && !logX ? { dtick: xDtick } : {}),
         },
         yaxis: {
           title: { text: yTitle, font: { color: plotColors.axisTitleColor } },
@@ -174,7 +177,7 @@ export function ScientificPlot({
         annotations,
       };
     },
-    [xTitle, yTitle, yTitle2, title, logX, logY, effectiveHeight, plotMargin, verticalLines, plotColors, xRange, yRange],
+    [xTitle, yTitle, yTitle2, title, logX, logY, effectiveHeight, plotMargin, verticalLines, plotColors, xRange, yRange, xDtick],
   );
 
   const config: Partial<Config> = useMemo(

@@ -102,7 +102,7 @@ mod tests {
         // s(k) should be between 0 and 1
         for (i, &si) in result.s.iter().enumerate() {
             if result.k[i] > 0.0 {
-                assert!(si >= 0.0 && si < 1.0, "s={si} out of range at k={}", result.k[i]);
+                assert!((0.0..1.0).contains(&si), "s={si} out of range at k={}", result.k[i]);
             }
         }
 

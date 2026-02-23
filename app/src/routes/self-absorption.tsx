@@ -1,7 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useWasm } from "~/hooks/useWasm";
-import { sa_fluo, sa_troger, sa_booth, sa_atoms } from "~/lib/wasm-api";
+import {
+  sa_fluo,
+  sa_troger,
+  sa_booth,
+  sa_atoms,
+  parse_formula,
+  validate_formula,
+  atomic_number,
+  xray_edges,
+  xray_edge_energy,
+} from "~/lib/wasm-api";
 import { energyRange } from "~/lib/constants";
 import { errorState, readyState, type CalculationState } from "~/lib/ui-state";
 import { validateRange } from "~/lib/inputs";
@@ -29,6 +39,97 @@ const ALGORITHMS: { value: Algorithm; label: string; description: string }[] = [
 /** ETOK constant for energy-to-k conversion: k = sqrt(ETOK * (E - E0)). */
 const ETOK = 0.2624682917;
 
+/** Convert k (Å⁻¹) to energy offset above edge (eV). E - E0 = k² / ETOK */
+function kToEnergyOffset(k: number): number {
+  return (k * k) / ETOK;
+}
+
+/** Extract heaviest element (by Z) from a formula string. */
+function extractHeaviestElement(formula: string): string | null {
+  if (!validate_formula(formula)) return null;
+  try {
+    const parsed = parse_formula(formula);
+    const components = parsed.components as { symbol: string; count: number }[];
+    if (components.length === 0) return null;
+    let heaviest = components[0];
+    let maxZ = 0;
+    for (const c of components) {
+      try {
+        const z = atomic_number(c.symbol);
+        if (z > maxZ) {
+          maxZ = z;
+          heaviest = c;
+        }
+      } catch {
+        // skip invalid elements
+      }
+    }
+    return heaviest.symbol;
+  } catch {
+    return null;
+  }
+}
+
+/** Get available edges for an element, sorted by energy descending. */
+function getAvailableEdges(
+  el: string,
+): { label: string; energy: number }[] | null {
+  try {
+    const edges = xray_edges(el) as {
+      label: string;
+      energy: number;
+      fluorescence_yield: number;
+      jump_ratio: number;
+    }[];
+    // Filter to edges with reasonable energy (> 100 eV)
+    return edges
+      .filter((e) => e.energy > 100)
+      .sort((a, b) => b.energy - a.energy);
+  } catch {
+    return null;
+  }
+}
+
+/** Compute energy range for a given element/edge. Returns [start, end]. */
+function computeEnergyRange(
+  el: string,
+  edgeLabel: string,
+  kMax: number = 15,
+): [number, number] | null {
+  try {
+    const edgeE = xray_edge_energy(el, edgeLabel);
+    const start = Math.max(Math.round(edgeE - 200), 100);
+    // E at k_max
+    const eKmax = edgeE + kToEnergyOffset(kMax);
+
+    // Check if there's a next edge above this one
+    const edges = getAvailableEdges(el);
+    let end = Math.round(eKmax);
+    if (edges) {
+      // Find next edge above current
+      const currentE = edgeE;
+      for (const e of edges) {
+        if (e.energy > currentE + 50 && e.label !== edgeLabel) {
+          // Cap at next edge - 50 eV
+          end = Math.min(end, Math.round(e.energy - 50));
+          break;
+        }
+      }
+      // edges are sorted descending, so reverse to find next higher
+      const sorted = [...edges].sort((a, b) => a.energy - b.energy);
+      for (const e of sorted) {
+        if (e.energy > currentE + 50 && e.label !== edgeLabel) {
+          end = Math.min(end, Math.round(e.energy - 50));
+          break;
+        }
+      }
+    }
+    return [start, end];
+  } catch {
+    return null;
+  }
+}
+
 interface SelfAbsData {
   /** Signal retained (%) vs energy. */
   energyTraces: PlotTrace[];
@@ -54,12 +155,26 @@ interface SummaryInfo {
 
 const COLORS = ["#3b82f6", "#ef4444", "#22c55e", "#f59e0b"];
 
+const EDGE_OPTIONS = ["K", "L3", "L2", "L1", "M5", "M4", "M3"] as const;
+
+/** Given an element, pick the best edge and return [availableEdges, bestEdge]. */
+function pickEdge(el: string): [string[], string] {
+  const edges = getAvailableEdges(el);
+  if (!edges || edges.length === 0) return [["K"], "K"];
+  const labels = edges.map((e) => e.label);
+  const filtered = EDGE_OPTIONS.filter((e) => labels.includes(e));
+  if (filtered.length === 0) return [["K"], "K"];
+  // Pick lowest-energy common edge (last in EDGE_OPTIONS order, which lists high→low)
+  return [[...filtered], filtered[filtered.length - 1]];
+}
+
 function SelfAbsorptionPage() {
   const ready = useWasm();
 
   const [formula, setFormula] = useState("Fe2O3");
   const [element, setElement] = useState("Fe");
   const [edge, setEdge] = useState("K");
+  const [availableEdges, setAvailableEdges] = useState<string[]>(["K", "L3", "L2", "L1"]);
   const [eStart, setEStart] = useState(7000);
   const [eEnd, setEEnd] = useState(8000);
   const [eStep, setEStep] = useState(2);
@@ -77,6 +192,75 @@ function SelfAbsorptionPage() {
       prev.includes(algo) ? prev.filter((a) => a !== algo) : [...prev, algo],
     );
   };
+
+  // Sync all derived state when formula changes
+  const handleFormulaChange = useCallback(
+    (newFormula: string) => {
+      setFormula(newFormula);
+      if (!ready) return;
+      const detected = extractHeaviestElement(newFormula);
+      if (detected) {
+        setElement(detected);
+        const [edges, bestEdge] = pickEdge(detected);
+        setAvailableEdges(edges);
+        setEdge(bestEdge);
+        const range = computeEnergyRange(detected, bestEdge);
+        if (range) {
+          setEStart(range[0]);
+          setEEnd(range[1]);
+        }
+      }
+    },
+    [ready],
+  );
+
+  // Sync edge + energy range when element changes manually
+  const handleElementChange = useCallback(
+    (newElement: string) => {
+      setElement(newElement);
+      if (!ready || !newElement.trim()) return;
+      const [edges, bestEdge] = pickEdge(newElement);
+      setAvailableEdges(edges);
+      setEdge(bestEdge);
+      const range = computeEnergyRange(newElement, bestEdge);
+      if (range) {
+        setEStart(range[0]);
+        setEEnd(range[1]);
+      }
+    },
+    [ready],
+  );
+
+  // Sync energy range when edge changes manually
+  const handleEdgeChange = useCallback(
+    (newEdge: string) => {
+      setEdge(newEdge);
+      if (!ready || !element.trim()) return;
+      const range = computeEnergyRange(element, newEdge);
+      if (range) {
+        setEStart(range[0]);
+        setEEnd(range[1]);
+      }
+    },
+    [ready, element],
+  );
+
+  // Initialize derived state once WASM is ready
+  useEffect(() => {
+    if (!ready) return;
+    const detected = extractHeaviestElement(formula);
+    if (detected) {
+      setElement(detected);
+      const [edges, bestEdge] = pickEdge(detected);
+      setAvailableEdges(edges);
+      setEdge(bestEdge);
+      const range = computeEnergyRange(detected, bestEdge);
+      if (range) {
+        setEStart(range[0]);
+        setEEnd(range[1]);
+      }
+    }
+  }, [ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const calcState = useMemo<CalculationState<SelfAbsData>>(() => {
     if (!ready) return { status: "idle", data: null, error: null };
@@ -248,7 +432,7 @@ function SelfAbsorptionPage() {
       <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-[320px_1fr]">
         {/* Controls */}
         <div className="order-2 space-y-4 lg:order-none">
-          <FormulaInput value={formula} onChange={setFormula} />
+          <FormulaInput value={formula} onChange={handleFormulaChange} />
 
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -256,7 +440,7 @@ function SelfAbsorptionPage() {
               <input
                 type="text"
                 value={element}
-                onChange={(e) => setElement(e.target.value)}
+                onChange={(e) => handleElementChange(e.target.value)}
                 placeholder="e.g. Fe"
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
@@ -265,13 +449,14 @@ function SelfAbsorptionPage() {
               <label className="mb-1 block text-sm font-medium">Edge</label>
               <select
                 value={edge}
-                onChange={(e) => setEdge(e.target.value)}
+                onChange={(e) => handleEdgeChange(e.target.value)}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               >
-                <option value="K">K</option>
-                <option value="L3">L3</option>
-                <option value="L2">L2</option>
-                <option value="L1">L1</option>
+                {availableEdges.map((e) => (
+                  <option key={e} value={e}>
+                    {e}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -387,6 +572,8 @@ function SelfAbsorptionPage() {
             height={380}
             showLogToggle={false}
             yRange={[0, 105]}
+            xRange={[0, 16]}
+            xDtick={2}
           />
 
           {calcState.data?.summary && calcState.data.summary.length > 0 && (

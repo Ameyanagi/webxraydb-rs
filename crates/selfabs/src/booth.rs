@@ -175,7 +175,7 @@ mod tests {
         // s(k) should be 0..1 above edge
         for (i, &si) in result.s.iter().enumerate() {
             if result.k[i] > 0.0 {
-                assert!(si >= 0.0 && si < 1.0, "s={si}");
+                assert!((0.0..1.0).contains(&si), "s={si}");
             }
         }
     }
