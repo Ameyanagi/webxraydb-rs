@@ -1,0 +1,10 @@
+[package]
+name = "selfabs"
+version = "0.1.0"
+edition = "2024"
+authors = ["Ameyanagi <contact@ameyanagi.com>"]
+description = "Self-absorption correction for fluorescence XAS"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+xraydb = "0.1"

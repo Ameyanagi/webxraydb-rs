@@ -41,4 +41,9 @@ export {
   // Formula
   parse_formula,
   validate_formula,
+  // Self-absorption
+  sa_fluo,
+  sa_troger,
+  sa_booth,
+  sa_atoms,
 } from "~/wasm-pkg/webxraydb_wasm";

@@ -48,6 +48,7 @@ const navItems = [
   { to: "/darwin", label: "Darwin Width" },
   { to: "/sample-weight", label: "Sample Weight" },
   { to: "/analyzers", label: "Analyzers" },
+  { to: "/self-absorption", label: "Self Absorption" },
 ] as const;
 
 const THEME_OPTIONS: { value: ThemePreset; label: string; hue: string }[] = [
