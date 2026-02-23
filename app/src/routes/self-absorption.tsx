@@ -244,6 +244,28 @@ function parseChiSweepList(input: string): { values: number[]; error: string | n
   return { values, error: null };
 }
 
+function signalYAxisRange(traces: PlotTrace[]): [number, number] | undefined {
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+  let found = false;
+
+  for (const t of traces) {
+    for (const y of t.y) {
+      if (!Number.isFinite(y)) continue;
+      found = true;
+      if (y < min) min = y;
+      if (y > max) max = y;
+    }
+  }
+
+  if (!found) return [0, 105];
+  if (min >= 0 && max <= 105) return [0, 105];
+
+  const span = Math.max(max - min, 1e-6);
+  const pad = span * 0.08;
+  return [min - pad, max + pad];
+}
+
 function SelfAbsorptionPage() {
   const ready = useWasm();
 
@@ -622,6 +644,8 @@ function SelfAbsorptionPage() {
   if (!ready) return <LoadingState />;
   const ameyanagiSweepActive =
     selectedAlgos.includes("ameyanagi") && ameyanagiChiMode === "sweep";
+  const energyYRange = signalYAxisRange(calcState.data?.energyTraces ?? []);
+  const kYRange = signalYAxisRange(calcState.data?.kTraces ?? []);
 
   return (
     <div>
@@ -977,7 +1001,7 @@ function SelfAbsorptionPage() {
             title={`Self-absorption effect vs Energy (100% = no effect${ameyanagiSweepActive ? ", Ameyanagi multi-χ" : ""})`}
             height={380}
             showLogToggle={false}
-            yRange={[0, 105]}
+            yRange={energyYRange}
           />
 
           <ScientificPlot
@@ -987,7 +1011,7 @@ function SelfAbsorptionPage() {
             title={`Self-absorption effect vs k (100% = no effect${ameyanagiSweepActive ? ", Ameyanagi multi-χ" : ""})`}
             height={380}
             showLogToggle={false}
-            yRange={[0, 105]}
+            yRange={kYRange}
             xRange={[0, 16]}
             xDtick={2}
           />
