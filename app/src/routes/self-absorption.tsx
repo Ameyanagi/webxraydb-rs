@@ -26,9 +26,14 @@ const ALGORITHMS: { value: Algorithm; label: string; description: string }[] = [
   { value: "atoms", label: "Atoms", description: "Ravel (2001) — amplitude + \u03c3\u00b2 correction" },
 ];
 
+/** ETOK constant for energy-to-k conversion: k = sqrt(ETOK * (E - E0)). */
+const ETOK = 0.2624682917;
+
 interface SelfAbsData {
-  /** Signal retained (%) — 100% means no self-absorption effect. */
-  percentTraces: PlotTrace[];
+  /** Signal retained (%) vs energy. */
+  energyTraces: PlotTrace[];
+  /** Signal retained (%) vs k (only above-edge points). */
+  kTraces: PlotTrace[];
   summary: SummaryInfo[];
 }
 
@@ -86,9 +91,29 @@ function SelfAbsorptionPage() {
     try {
       const energies = energyRange(eStart, eEnd, eStep);
       const energyArr = Array.from(energies);
-      const percentTraces: PlotTrace[] = [];
+      const energyTraces: PlotTrace[] = [];
+      const kTraces: PlotTrace[] = [];
       const summary: SummaryInfo[] = [];
       let colorIdx = 0;
+
+      /** Filter to above-edge points and convert energy to k. */
+      const toKTrace = (
+        eArr: number[],
+        pct: number[],
+        edgeE: number,
+        name: string,
+        line: PlotTrace["line"],
+      ) => {
+        const kx: number[] = [];
+        const ky: number[] = [];
+        for (let i = 0; i < eArr.length; i++) {
+          if (eArr[i] > edgeE) {
+            kx.push(Math.sqrt(ETOK * (eArr[i] - edgeE)));
+            ky.push(pct[i]);
+          }
+        }
+        kTraces.push({ x: kx, y: ky, name, line });
+      };
 
       for (const algo of selectedAlgos) {
         const color = COLORS[colorIdx % COLORS.length];
@@ -103,19 +128,14 @@ function SelfAbsorptionPage() {
             thetaIn,
             thetaOut,
           );
-          // correction_factor = (beta*g + gamma' + 1) / (beta*g + mu_bg_norm)
-          // signal_retained_% = 100 / correction_factor
           const betaG = r.beta * r.ratio;
           const denomConst = betaG + r.gamma_prime + 1.0;
           const pct = (r.mu_background_norm as number[]).map(
             (bg: number) => (100 * (betaG + bg)) / denomConst,
           );
-          percentTraces.push({
-            x: energyArr,
-            y: pct,
-            name: "Fluo",
-            line: { color, width: 2 },
-          });
+          const line = { color, width: 2 };
+          energyTraces.push({ x: energyArr, y: pct, name: "Fluo", line });
+          toKTrace(energyArr, pct, r.edge_energy, "Fluo", line);
           summary.push({
             algorithm: "Fluo",
             edgeEnergy: r.edge_energy,
@@ -134,16 +154,12 @@ function SelfAbsorptionPage() {
             thetaIn,
             thetaOut,
           );
-          // signal_retained = (1 - s) * 100
           const pct = (r.s as number[]).map(
             (si: number) => (1 - si) * 100,
           );
-          percentTraces.push({
-            x: energyArr,
-            y: pct,
-            name: "Tr\u00f6ger",
-            line: { color, width: 2 },
-          });
+          const line = { color, width: 2 };
+          energyTraces.push({ x: energyArr, y: pct, name: "Tr\u00f6ger", line });
+          toKTrace(energyArr, pct, r.edge_energy, "Tr\u00f6ger", line);
           summary.push({
             algorithm: "Tr\u00f6ger",
             edgeEnergy: r.edge_energy,
@@ -161,16 +177,13 @@ function SelfAbsorptionPage() {
             thetaOut,
             thicknessUm,
           );
-          // signal_retained = (1 - s) * 100  (thick approx)
           const pct = (r.s as number[]).map(
             (si: number) => (1 - si) * 100,
           );
-          percentTraces.push({
-            x: energyArr,
-            y: pct,
-            name: `Booth (${r.is_thick ? "thick" : "thin"})`,
-            line: { color, width: 2, dash: "dash" },
-          });
+          const name = `Booth (${r.is_thick ? "thick" : "thin"})`;
+          const line = { color, width: 2, dash: "dash" as const };
+          energyTraces.push({ x: energyArr, y: pct, name, line });
+          toKTrace(energyArr, pct, r.edge_energy, name, line);
           summary.push({
             algorithm: "Booth",
             edgeEnergy: r.edge_energy,
@@ -186,16 +199,12 @@ function SelfAbsorptionPage() {
             edge.trim(),
             energies,
           );
-          // signal_retained = 100 / sigma(E)
           const pct = (r.correction as number[]).map(
             (sigma: number) => (sigma > 0 ? 100 / sigma : 100),
           );
-          percentTraces.push({
-            x: energyArr,
-            y: pct,
-            name: "Atoms",
-            line: { color, width: 2, dash: "dot" },
-          });
+          const line = { color, width: 2, dash: "dot" as const };
+          energyTraces.push({ x: energyArr, y: pct, name: "Atoms", line });
+          toKTrace(energyArr, pct, r.edge_energy, "Atoms", line);
           summary.push({
             algorithm: "Atoms",
             edgeEnergy: r.edge_energy,
@@ -209,7 +218,7 @@ function SelfAbsorptionPage() {
         }
       }
 
-      return readyState({ percentTraces, summary });
+      return readyState({ energyTraces, kTraces, summary });
     } catch (e: unknown) {
       return errorState(e instanceof Error ? e.message : String(e));
     }
@@ -361,11 +370,21 @@ function SelfAbsorptionPage() {
         {/* Results */}
         <div className="order-1 space-y-4 lg:order-none">
           <ScientificPlot
-            traces={calcState.data?.percentTraces ?? []}
+            traces={calcState.data?.energyTraces ?? []}
             xTitle="Energy (eV)"
             yTitle="Signal retained (%)"
-            title="Self-absorption effect (100% = no effect)"
-            height={400}
+            title="Self-absorption effect vs Energy (100% = no effect)"
+            height={380}
+            showLogToggle={false}
+            yRange={[0, 105]}
+          />
+
+          <ScientificPlot
+            traces={calcState.data?.kTraces ?? []}
+            xTitle="k (\u00c5\u207b\u00b9)"
+            yTitle="Signal retained (%)"
+            title="Self-absorption effect vs k (100% = no effect)"
+            height={380}
             showLogToggle={false}
             yRange={[0, 105]}
           />
