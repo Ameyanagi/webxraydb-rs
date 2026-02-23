@@ -27,8 +27,8 @@ const ALGORITHMS: { value: Algorithm; label: string; description: string }[] = [
 ];
 
 interface SelfAbsData {
-  correctionTraces: PlotTrace[];
-  sTraces: PlotTrace[];
+  /** Signal retained (%) — 100% means no self-absorption effect. */
+  percentTraces: PlotTrace[];
   summary: SummaryInfo[];
 }
 
@@ -86,8 +86,7 @@ function SelfAbsorptionPage() {
     try {
       const energies = energyRange(eStart, eEnd, eStep);
       const energyArr = Array.from(energies);
-      const correctionTraces: PlotTrace[] = [];
-      const sTraces: PlotTrace[] = [];
+      const percentTraces: PlotTrace[] = [];
       const summary: SummaryInfo[] = [];
       let colorIdx = 0;
 
@@ -104,16 +103,16 @@ function SelfAbsorptionPage() {
             thetaIn,
             thetaOut,
           );
-          // Fluo: correction factor = (beta*ratio + gamma' + 1) / (beta*ratio + mu_bg_norm)
-          // Approximate the damping factor at each energy
+          // correction_factor = (beta*g + gamma' + 1) / (beta*g + mu_bg_norm)
+          // signal_retained_% = 100 / correction_factor
           const betaG = r.beta * r.ratio;
           const denomConst = betaG + r.gamma_prime + 1.0;
-          const correction = (r.mu_background_norm as number[]).map(
-            (bg: number) => denomConst / (betaG + bg),
+          const pct = (r.mu_background_norm as number[]).map(
+            (bg: number) => (100 * (betaG + bg)) / denomConst,
           );
-          correctionTraces.push({
+          percentTraces.push({
             x: energyArr,
-            y: correction,
+            y: pct,
             name: "Fluo",
             line: { color, width: 2 },
           });
@@ -135,16 +134,14 @@ function SelfAbsorptionPage() {
             thetaIn,
             thetaOut,
           );
-          correctionTraces.push({
+          // signal_retained = (1 - s) * 100
+          const pct = (r.s as number[]).map(
+            (si: number) => (1 - si) * 100,
+          );
+          percentTraces.push({
             x: energyArr,
-            y: Array.from(r.correction_factor as number[]),
+            y: pct,
             name: "Tr\u00f6ger",
-            line: { color, width: 2 },
-          });
-          sTraces.push({
-            x: energyArr,
-            y: Array.from(r.s as number[]),
-            name: "Tr\u00f6ger s(k)",
             line: { color, width: 2 },
           });
           summary.push({
@@ -164,21 +161,13 @@ function SelfAbsorptionPage() {
             thetaOut,
             thicknessUm,
           );
-          // For Booth we show s(k) — the actual chi correction requires chi data
-          sTraces.push({
+          // signal_retained = (1 - s) * 100  (thick approx)
+          const pct = (r.s as number[]).map(
+            (si: number) => (1 - si) * 100,
+          );
+          percentTraces.push({
             x: energyArr,
-            y: Array.from(r.s as number[]),
-            name: `Booth s(k) (${r.is_thick ? "thick" : "thin"})`,
-            line: { color, width: 2, dash: "dash" },
-          });
-          // Show 1/(1-s) as approximate correction factor for thick
-          const cf = (r.s as number[]).map((si: number) => {
-            const d = 1.0 - si;
-            return Math.abs(d) > 1e-10 ? 1.0 / d : 1.0;
-          });
-          correctionTraces.push({
-            x: energyArr,
-            y: cf,
+            y: pct,
             name: `Booth (${r.is_thick ? "thick" : "thin"})`,
             line: { color, width: 2, dash: "dash" },
           });
@@ -197,10 +186,14 @@ function SelfAbsorptionPage() {
             edge.trim(),
             energies,
           );
-          correctionTraces.push({
+          // signal_retained = 100 / sigma(E)
+          const pct = (r.correction as number[]).map(
+            (sigma: number) => (sigma > 0 ? 100 / sigma : 100),
+          );
+          percentTraces.push({
             x: energyArr,
-            y: Array.from(r.correction as number[]),
-            name: "Atoms \u03c3(E)",
+            y: pct,
+            name: "Atoms",
             line: { color, width: 2, dash: "dot" },
           });
           summary.push({
@@ -216,7 +209,7 @@ function SelfAbsorptionPage() {
         }
       }
 
-      return readyState({ correctionTraces, sTraces, summary });
+      return readyState({ percentTraces, summary });
     } catch (e: unknown) {
       return errorState(e instanceof Error ? e.message : String(e));
     }
@@ -368,24 +361,14 @@ function SelfAbsorptionPage() {
         {/* Results */}
         <div className="order-1 space-y-4 lg:order-none">
           <ScientificPlot
-            traces={calcState.data?.correctionTraces ?? []}
+            traces={calcState.data?.percentTraces ?? []}
             xTitle="Energy (eV)"
-            yTitle="Correction factor"
-            title="Self-absorption correction factor"
+            yTitle="Signal retained (%)"
+            title="Self-absorption effect (100% = no effect)"
             height={400}
             showLogToggle={false}
+            yRange={[0, 105]}
           />
-
-          {(calcState.data?.sTraces?.length ?? 0) > 0 && (
-            <ScientificPlot
-              traces={calcState.data?.sTraces ?? []}
-              xTitle="Energy (eV)"
-              yTitle="s(k)"
-              title="s(k) = \u03bc_absorber / \u03b1(k)"
-              height={300}
-              showLogToggle={false}
-            />
-          )}
 
           {calcState.data?.summary && calcState.data.summary.length > 0 && (
             <div className="rounded-lg border border-border bg-card p-4">
