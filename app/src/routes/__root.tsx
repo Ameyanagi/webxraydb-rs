@@ -83,32 +83,86 @@ const THEME_OPTIONS: { value: ThemePreset; label: string; hue: string }[] = [
   { value: "rose", label: "Rose", hue: "oklch(0.5316 0.1409 355.1999)" },
 ];
 
-function NavList({ onNavigate }: { onNavigate?: () => void }) {
+function NavList({ onNavigate, collapsible = false }: { onNavigate?: () => void; collapsible?: boolean }) {
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+
+  // Determine which section contains the active page
+  const activeSectionIndex = navSections.findIndex((section) =>
+    section.items.some((item) =>
+      item.to === "/" ? pathname === "/" : pathname.startsWith(item.to),
+    ),
+  );
+
+  const [expanded, setExpanded] = useState<Set<number>>(() =>
+    new Set(activeSectionIndex >= 0 ? [activeSectionIndex] : [0]),
+  );
+
+  const toggle = useCallback((index: number) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) {
+        next.delete(index);
+      } else {
+        next.add(index);
+      }
+      return next;
+    });
+  }, []);
+
   return (
     <div className="space-y-3">
-      {navSections.map((section) => (
-        <div
-          key={section.title}
-          className="rounded-md border border-border/70 bg-card/40 p-1"
-        >
-          <h3 className="mb-1 rounded-sm bg-secondary/70 px-2 py-1 text-[11px] font-bold uppercase tracking-[0.08em] text-foreground/90">
-            {section.title}
-          </h3>
-          <ul className="space-y-1 pl-2">
-            {section.items.map((item) => (
-              <li key={item.to}>
-                <Link
-                  to={item.to}
-                  onClick={onNavigate}
-                  className="block rounded-md px-2.5 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground [&.active]:bg-accent [&.active]:font-medium [&.active]:text-accent-foreground"
+      {navSections.map((section, sectionIndex) => {
+        const isOpen = !collapsible || expanded.has(sectionIndex);
+        return (
+          <div
+            key={section.title}
+            className="rounded-md border border-border/70 bg-card/40 p-1"
+          >
+            {collapsible ? (
+              <button
+                type="button"
+                onClick={() => toggle(sectionIndex)}
+                className="flex w-full items-center justify-between rounded-sm bg-secondary/70 px-2 py-1 text-left"
+              >
+                <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-foreground/90">
+                  {section.title}
+                </span>
+                <svg
+                  width="10"
+                  height="10"
+                  viewBox="0 0 10 10"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  className={`shrink-0 text-muted-foreground transition-transform duration-150 ${isOpen ? "rotate-90" : ""}`}
                 >
-                  {item.label}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ))}
+                  <path d="M3.5 1.5 L7 5 L3.5 8.5" />
+                </svg>
+              </button>
+            ) : (
+              <h3 className="mb-1 rounded-sm bg-secondary/70 px-2 py-1 text-[11px] font-bold uppercase tracking-[0.08em] text-foreground/90">
+                {section.title}
+              </h3>
+            )}
+            {isOpen && (
+              <ul className={`space-y-1 pl-2 ${collapsible ? "mt-1" : ""}`}>
+                {section.items.map((item) => (
+                  <li key={item.to}>
+                    <Link
+                      to={item.to}
+                      onClick={onNavigate}
+                      className="block rounded-md px-2.5 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground [&.active]:bg-accent [&.active]:font-medium [&.active]:text-accent-foreground"
+                    >
+                      {item.label}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -381,7 +435,7 @@ function RootDocument({ children }: { children: ReactNode }) {
                       </svg>
                     </button>
                   </div>
-                  <NavList onNavigate={() => setMenuOpen(false)} />
+                  <NavList onNavigate={() => setMenuOpen(false)} collapsible />
                   <div className="mt-auto pt-4">
                     <ThemeControlsInner />
                   </div>
