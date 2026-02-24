@@ -657,72 +657,93 @@ function SamplePreparationHelperPage() {
         return probeCase?.fluorescenceMinPercent ?? null;
       };
 
-      let maxThicknessCm = Math.max(pureCase.thicknessCm, 1e-4);
-      let maxEval = evaluateMinRByThickness(maxThicknessCm);
-      let expandCount = 0;
-      while (
-        maxEval != null &&
-        maxEval >= fluorescenceTargetPercent &&
-        maxThicknessCm < 5.0 &&
-        expandCount < 16
-      ) {
-        maxThicknessCm *= 2.0;
-        maxEval = evaluateMinRByThickness(maxThicknessCm);
-        expandCount += 1;
-      }
-
-      const thicknessSolve = solveThicknessForFluorescence({
-        min: 1e-6,
-        max: maxThicknessCm,
-        evaluateMinRetainedPercent: evaluateMinRByThickness,
-        targetMinRetainedPercent: fluorescenceTargetPercent,
-        targetTolerance: 0.1,
-        valueTolerance: 1e-6,
-        maxIterations: 80,
-        samplePoints: 96,
-      });
-
-      if (!thicknessSolve) {
-        warnings.push("Fluorescence thickness solver failed to initialize.");
-      } else if (thicknessSolve.feasible) {
-        const solvedThicknessCm = thicknessSolve.value;
-        const equivalentMassMg = sampleDensityGcm3 * pelletAreaCm2 * solvedThicknessCm * 1000;
-        const thicknessCase = buildCase(
+      if (pureCase.fluorescenceMinPercent >= fluorescenceTargetPercent) {
+        const inputThicknessCase = buildCase(
           "fluo-thickness",
-          "Thickness for fluorescence (sample only, R>=90%)",
+          "Thickness for fluorescence (sample only, input mass)",
           targetEdgeStep,
-          equivalentMassMg,
+          totalMassMg,
           0,
           {
-            solvedThicknessCm,
-            equivalentMassMg,
-            solverNote: thicknessSolve.note,
+            solvedThicknessCm: pureCase.thicknessCm,
+            equivalentMassMg: totalMassMg,
+            solverNote:
+              "Input sample-only mass already satisfies min R >= 90%; using input thickness.",
           },
         );
-        if (thicknessCase) {
-          cases.push(thicknessCase);
+        if (inputThicknessCase) {
+          cases.push(inputThicknessCase);
         } else {
-          warnings.push("Could not build fluorescence thickness case from solved thickness.");
+          warnings.push("Could not build fluorescence thickness case from input mass.");
         }
       } else {
-        const fallbackThicknessCm = thicknessSolve.bestValue;
-        const fallbackMassMg = sampleDensityGcm3 * pelletAreaCm2 * fallbackThicknessCm * 1000;
-        const fallbackCase = buildCase(
-          "fluo-thickness",
-          "Thickness for fluorescence (sample only, best effort)",
-          targetEdgeStep,
-          fallbackMassMg,
-          0,
-          {
-            solvedThicknessCm: fallbackThicknessCm,
-            equivalentMassMg: fallbackMassMg,
-            solverNote: thicknessSolve.reason,
-          },
-        );
-        if (fallbackCase) {
-          cases.push(fallbackCase);
+        let maxThicknessCm = Math.max(pureCase.thicknessCm, 1e-4);
+        let maxEval = evaluateMinRByThickness(maxThicknessCm);
+        let expandCount = 0;
+        while (
+          maxEval != null &&
+          maxEval >= fluorescenceTargetPercent &&
+          maxThicknessCm < 5.0 &&
+          expandCount < 16
+        ) {
+          maxThicknessCm *= 2.0;
+          maxEval = evaluateMinRByThickness(maxThicknessCm);
+          expandCount += 1;
         }
-        warnings.push(thicknessSolve.reason);
+
+        const thicknessSolve = solveThicknessForFluorescence({
+          min: 1e-6,
+          max: maxThicknessCm,
+          evaluateMinRetainedPercent: evaluateMinRByThickness,
+          targetMinRetainedPercent: fluorescenceTargetPercent,
+          targetTolerance: 0.1,
+          valueTolerance: 1e-6,
+          maxIterations: 80,
+          samplePoints: 96,
+        });
+
+        if (!thicknessSolve) {
+          warnings.push("Fluorescence thickness solver failed to initialize.");
+        } else if (thicknessSolve.feasible) {
+          const solvedThicknessCm = thicknessSolve.value;
+          const equivalentMassMg = sampleDensityGcm3 * pelletAreaCm2 * solvedThicknessCm * 1000;
+          const thicknessCase = buildCase(
+            "fluo-thickness",
+            "Thickness for fluorescence (sample only, R>=90%)",
+            targetEdgeStep,
+            equivalentMassMg,
+            0,
+            {
+              solvedThicknessCm,
+              equivalentMassMg,
+              solverNote: thicknessSolve.note,
+            },
+          );
+          if (thicknessCase) {
+            cases.push(thicknessCase);
+          } else {
+            warnings.push("Could not build fluorescence thickness case from solved thickness.");
+          }
+        } else {
+          const fallbackThicknessCm = thicknessSolve.bestValue;
+          const fallbackMassMg = sampleDensityGcm3 * pelletAreaCm2 * fallbackThicknessCm * 1000;
+          const fallbackCase = buildCase(
+            "fluo-thickness",
+            "Thickness for fluorescence (sample only, best effort)",
+            targetEdgeStep,
+            fallbackMassMg,
+            0,
+            {
+              solvedThicknessCm: fallbackThicknessCm,
+              equivalentMassMg: fallbackMassMg,
+              solverNote: thicknessSolve.reason,
+            },
+          );
+          if (fallbackCase) {
+            cases.push(fallbackCase);
+          }
+          warnings.push(thicknessSolve.reason);
+        }
       }
 
       return readyState({
