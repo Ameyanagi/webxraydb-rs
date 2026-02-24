@@ -17,6 +17,7 @@ import type {
 import { LoadingState } from "~/components/ui/LoadingState";
 import { EmptyState } from "~/components/ui/EmptyState";
 import { ScrollableTable } from "~/components/ui/ScrollableTable";
+import { ToolDocsButton } from "~/components/docs/ToolDocsButton";
 
 export const Route = createFileRoute("/element/$z")({
   component: ElementDetailPage,
@@ -300,20 +301,23 @@ function ElementDetailPage() {
         &larr; Back to periodic table
       </Link>
 
-      <div className="mb-6 flex items-center gap-4">
-        <div className="flex h-16 w-16 items-center justify-center rounded-lg bg-primary/10 text-2xl font-bold text-primary sm:h-20 sm:w-20 sm:text-3xl">
-          {info.symbol}
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-center gap-4">
+          <div className="flex h-16 w-16 items-center justify-center rounded-lg bg-primary/10 text-2xl font-bold text-primary sm:h-20 sm:w-20 sm:text-3xl">
+            {info.symbol}
+          </div>
+          <div>
+            <h1 className="text-xl font-bold md:text-2xl">
+              {info.name}{" "}
+              <span className="text-muted-foreground">(Z={info.z})</span>
+            </h1>
+            <p className="text-muted-foreground">
+              Molar mass: {info.molar_mass.toFixed(4)} g/mol &nbsp;&middot;&nbsp;
+              Density: {info.density.toFixed(4)} g/cm³
+            </p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-xl font-bold md:text-2xl">
-            {info.name}{" "}
-            <span className="text-muted-foreground">(Z={info.z})</span>
-          </h1>
-          <p className="text-muted-foreground">
-            Molar mass: {info.molar_mass.toFixed(4)} g/mol &nbsp;&middot;&nbsp;
-            Density: {info.density.toFixed(4)} g/cm³
-          </p>
-        </div>
+        <ToolDocsButton docId="/element/$z" />
       </div>
 
       {/* Cross-section type toggles */}
