@@ -36,20 +36,35 @@ export const Route = createRootRoute({
   shellComponent: RootDocument,
 });
 
-const navItems = [
-  { to: "/", label: "Elements" },
-  { to: "/edges", label: "Edge Finder" },
-  { to: "/lines", label: "Line Finder" },
-  { to: "/attenuation", label: "Attenuation" },
-  { to: "/formulas", label: "Formulas" },
-  { to: "/scattering", label: "Scattering" },
-  { to: "/ionchamber", label: "Ion Chamber" },
-  { to: "/reflectivity", label: "Reflectivity" },
-  { to: "/darwin", label: "Darwin Width" },
-  { to: "/sample-weight", label: "Sample Weight" },
-  { to: "/analyzers", label: "Analyzers" },
-  { to: "/self-absorption", label: "Self Absorption" },
+const navSections = [
+  {
+    title: "General",
+    items: [
+      { to: "/", label: "Elements" },
+      { to: "/edges", label: "Edge Finder" },
+      { to: "/sample-preparation-helper", label: "Sample Preparation Helper" },
+    ],
+  },
+  {
+    title: "Beamline Scientist",
+    items: [
+      { to: "/ionchamber", label: "Ion Chamber" },
+      { to: "/reflectivity", label: "Reflectivity" },
+      { to: "/darwin", label: "Darwin Width" },
+      { to: "/analyzers", label: "Analyzer Formula" },
+    ],
+  },
+  {
+    title: "Archive",
+    items: [
+      { to: "/sample-weight", label: "Sample Weight" },
+      { to: "/self-absorption", label: "Self Absorption" },
+    ],
+  },
 ] as const;
+
+type NavItem = (typeof navSections)[number]["items"][number];
+const navItems: NavItem[] = navSections.flatMap((section) => [...section.items]);
 
 const THEME_OPTIONS: { value: ThemePreset; label: string; hue: string }[] = [
   { value: "default", label: "Default", hue: "oklch(0.7 0.15 230)" },
@@ -61,19 +76,28 @@ const THEME_OPTIONS: { value: ThemePreset; label: string; hue: string }[] = [
 
 function NavList({ onNavigate }: { onNavigate?: () => void }) {
   return (
-    <ul className="space-y-1">
-      {navItems.map((item) => (
-        <li key={item.to}>
-          <Link
-            to={item.to}
-            onClick={onNavigate}
-            className="block rounded-md px-3 py-2.5 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground [&.active]:bg-accent [&.active]:text-accent-foreground"
-          >
-            {item.label}
-          </Link>
-        </li>
+    <div className="space-y-4">
+      {navSections.map((section) => (
+        <div key={section.title}>
+          <h3 className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/80">
+            {section.title}
+          </h3>
+          <ul className="space-y-1">
+            {section.items.map((item) => (
+              <li key={item.to}>
+                <Link
+                  to={item.to}
+                  onClick={onNavigate}
+                  className="block rounded-md px-3 py-2.5 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground [&.active]:bg-accent [&.active]:text-accent-foreground"
+                >
+                  {item.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
       ))}
-    </ul>
+    </div>
   );
 }
 
@@ -181,10 +205,11 @@ function MoonIcon() {
 
 function MobileHeaderTitle() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const label = navItems.find((item) => {
-    if (item.to === "/") return pathname === "/";
-    return pathname.startsWith(item.to);
-  })?.label;
+  const label = navItems
+    .find((item) => {
+      if (item.to === "/") return pathname === "/";
+      return pathname.startsWith(item.to);
+    })?.label;
   return (
     <span className="truncate text-sm font-bold text-foreground">
       {label ?? "webxraydb-rs"}
