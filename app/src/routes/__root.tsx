@@ -38,27 +38,36 @@ export const Route = createRootRoute({
 
 const navSections = [
   {
-    title: "General",
+    title: "Lookup",
     items: [
       { to: "/", label: "Elements" },
       { to: "/edges", label: "Edge Finder" },
-      { to: "/sample-preparation-helper", label: "Sample Preparation Helper" },
+      { to: "/lines", label: "Line Finder" },
     ],
   },
   {
-    title: "Beamline Scientist",
+    title: "Materials",
     items: [
-      { to: "/ionchamber", label: "Ion Chamber" },
-      { to: "/reflectivity", label: "Reflectivity" },
-      { to: "/darwin", label: "Darwin Width" },
-      { to: "/analyzers", label: "Analyzer Formula" },
+      { to: "/attenuation", label: "Attenuation" },
+      { to: "/formulas", label: "Absorption Formulas" },
+      { to: "/scattering", label: "Scattering Factors" },
     ],
   },
   {
-    title: "Archive",
+    title: "Sample Preparation",
     items: [
+      { to: "/sample-preparation-helper", label: "Preparation Helper" },
       { to: "/sample-weight", label: "Sample Weight" },
       { to: "/self-absorption", label: "Self Absorption" },
+    ],
+  },
+  {
+    title: "Optics",
+    items: [
+      { to: "/ionchamber", label: "Ion Chamber" },
+      { to: "/reflectivity", label: "Mirror Reflectivity" },
+      { to: "/darwin", label: "Darwin Width" },
+      { to: "/analyzers", label: "Analyzer Crystals" },
     ],
   },
 ] as const;
