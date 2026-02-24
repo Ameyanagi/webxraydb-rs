@@ -248,8 +248,8 @@ function SelfAbsorptionPage() {
   const [eEnd, setEEnd] = useState(8000);
   const [eStep, setEStep] = useState(2);
   const [densityGcm3, setDensityGcm3] = useState(5.24);
-  const [phiRad, setPhiRad] = useState(Math.PI / 4);
-  const [thetaRad, setThetaRad] = useState(Math.PI / 4);
+  const [phiDeg, setPhiDeg] = useState(45);
+  const [thetaDeg, setThetaDeg] = useState(45);
   const [chiAssumed, setChiAssumed] = useState(0.2);
   const [ameyanagiChiMode, setAmeyanagiChiMode] = useState<AmeyanagiChiMode>("single");
   const [chiSweepPresets, setChiSweepPresets] = useState<number[]>([...AMEYANAGI_CHI_PRESETS]);
@@ -369,8 +369,8 @@ function SelfAbsorptionPage() {
       : chiSweepPresets;
 
     if (!(densityGcm3 > 0)) return errorState("Density must be > 0 g/cm³ for Ameyanagi");
-    if (!(phiRad > 0 && phiRad < Math.PI)) return errorState("Incident angle φ must be in radians and between 0 and π");
-    if (!(thetaRad > 0 && thetaRad < Math.PI)) return errorState("Exit angle θ must be in radians and between 0 and π");
+    if (!(phiDeg > 0 && phiDeg <= 90)) return errorState("Incident angle φ must be in degrees and in (0, 90]");
+    if (!(thetaDeg > 0 && thetaDeg <= 90)) return errorState("Exit angle θ must be in degrees and in (0, 90]");
     if (ameyanagiChiMode === "single") {
       if (!(Number.isFinite(chiAssumed) && chiAssumed > 0)) {
         return errorState("Assumed χ must be finite and > 0 for Ameyanagi");
@@ -405,8 +405,8 @@ function SelfAbsorptionPage() {
         densityGcm3,
       );
       const thicknessUmRef = resolvedThicknessCm * 1e4;
-      const thetaInDeg = (phiRad * 180.0) / Math.PI;
-      const thetaOutDeg = (thetaRad * 180.0) / Math.PI;
+      const phiRad = (phiDeg * Math.PI) / 180.0;
+      const thetaRad = (thetaDeg * Math.PI) / 180.0;
 
       const chiValues = ameyanagiChiMode === "single"
         ? [chiAssumed]
@@ -456,8 +456,8 @@ function SelfAbsorptionPage() {
           element.trim(),
           edge.trim(),
           energies,
-          thetaInDeg,
-          thetaOutDeg,
+          phiDeg,
+          thetaDeg,
           thicknessUmRef,
           densityGcm3,
           chi,
@@ -496,8 +496,8 @@ function SelfAbsorptionPage() {
     eEnd,
     eStep,
     densityGcm3,
-    phiRad,
-    thetaRad,
+    phiDeg,
+    thetaDeg,
     chiAssumed,
     ameyanagiChiMode,
     chiSweepPresets,
@@ -667,14 +667,14 @@ function SelfAbsorptionPage() {
                 <div className="flex items-center gap-1">
                   <input
                     type="number"
-                    value={phiRad}
-                    min={0.001}
-                    max={3.13}
-                    step={0.01}
-                    onChange={(e) => setPhiRad(Number(e.target.value))}
+                    value={phiDeg}
+                    min={0.1}
+                    max={90}
+                    step={0.1}
+                    onChange={(e) => setPhiDeg(Number(e.target.value))}
                     className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                   />
-                  <span className="text-xs text-muted-foreground">rad</span>
+                  <span className="text-xs text-muted-foreground">deg</span>
                 </div>
               </div>
               <div>
@@ -682,14 +682,14 @@ function SelfAbsorptionPage() {
                 <div className="flex items-center gap-1">
                   <input
                     type="number"
-                    value={thetaRad}
-                    min={0.001}
-                    max={3.13}
-                    step={0.01}
-                    onChange={(e) => setThetaRad(Number(e.target.value))}
+                    value={thetaDeg}
+                    min={0.1}
+                    max={90}
+                    step={0.1}
+                    onChange={(e) => setThetaDeg(Number(e.target.value))}
                     className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                   />
-                  <span className="text-xs text-muted-foreground">rad</span>
+                  <span className="text-xs text-muted-foreground">deg</span>
                 </div>
               </div>
             </div>

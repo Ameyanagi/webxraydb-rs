@@ -7,8 +7,9 @@
 use xraydb::XrayDb;
 
 use crate::common::{
-    FluorescenceGeometry, SampleInfo, SelfAbsError, energies_to_k, weighted_mu_absorber,
-    weighted_mu_total, weighted_mu_total_single,
+    FluorescenceGeometry, SampleInfo, SelfAbsError, absorber_edge_mu_linear_trendline,
+    composition_mass_fractions, compound_mu_linear, compound_mu_linear_single, energies_to_k,
+    weighted_mu_absorber, weighted_mu_total, weighted_mu_total_single,
 };
 
 /// Thickness threshold (μm) for thin vs. thick determination.
@@ -140,13 +141,7 @@ impl BoothResult {
         }
     }
 
-    fn correct_single_thin(
-        &self,
-        i: usize,
-        chi_exp: f64,
-        density: f64,
-        thickness_um: f64,
-    ) -> f64 {
+    fn correct_single_thin(&self, i: usize, chi_exp: f64, density: f64, thickness_um: f64) -> f64 {
         let thickness_cm = thickness_um * 1e-4;
         let alpha_i = self.alpha[i] * density;
         let mu_a_i = self.s[i] * alpha_i;
@@ -344,14 +339,66 @@ pub fn booth_suppression_reference(
         ));
     }
 
-    let base = booth(
-        formula,
-        central_element,
-        edge,
-        energies,
-        geometry,
-        thickness_um,
-    )?;
+    let db = XrayDb::new();
+    let geo = geometry.unwrap_or_default();
+    let info = SampleInfo::new(&db, formula, central_element, edge)?;
+    let ratio = geo.ratio();
+
+    let k = energies_to_k(energies, info.edge_energy);
+    let mass_fractions = composition_mass_fractions(&db, &info.composition)?;
+    let mu_t = compound_mu_linear(&db, &mass_fractions, density_g_cm3, energies)?;
+    let mu_a = absorber_edge_mu_linear_trendline(&db, &info, energies, density_g_cm3)?;
+
+    let lines = db.xray_lines(central_element, Some(edge), None)?;
+    let mut mu_f_weighted = 0.0;
+    let mut ef_weighted = 0.0;
+    let mut w_sum = 0.0;
+    for line in lines.values() {
+        if !line.intensity.is_finite() || line.intensity <= 0.0 {
+            continue;
+        }
+        let w = line.intensity;
+        let mu_line = compound_mu_linear_single(&db, &mass_fractions, density_g_cm3, line.energy)?;
+        mu_f_weighted += w * mu_line;
+        ef_weighted += w * line.energy;
+        w_sum += w;
+    }
+    if w_sum <= 0.0 {
+        return Err(SelfAbsError::NoEmissionLines(format!(
+            "{central_element} {edge} has no positive-intensity lines"
+        )));
+    }
+    let mu_f = mu_f_weighted / w_sum;
+    let fluorescence_energy = ef_weighted / w_sum;
+
+    let mut s = Vec::with_capacity(energies.len());
+    let mut alpha = Vec::with_capacity(energies.len());
+    for i in 0..energies.len() {
+        let alpha_linear = mu_t[i] + ratio * mu_f;
+        let si = if alpha_linear > 0.0 {
+            mu_a[i] / alpha_linear
+        } else {
+            0.0
+        };
+        alpha.push(alpha_linear / density_g_cm3);
+        s.push(si);
+    }
+
+    let sin_phi = geo.theta_incident_deg.to_radians().sin();
+    let effective_path = thickness_um / sin_phi;
+    let is_thick = effective_path >= THICK_LIMIT_UM;
+
+    let base = BoothResult {
+        energies: energies.to_vec(),
+        k,
+        is_thick,
+        s,
+        alpha,
+        sin_phi,
+        edge_energy: info.edge_energy,
+        fluorescence_energy,
+    };
+
     let r = base.suppression_factor(chi_true, density_g_cm3, thickness_um)?;
     let r_min = r.iter().fold(f64::INFINITY, |m, &v| m.min(v));
     let r_max = r.iter().fold(f64::NEG_INFINITY, |m, &v| m.max(v));
@@ -372,6 +419,9 @@ pub fn booth_suppression_reference(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ameyanagi::{
+        AmeyanagiSuppressionSettings, AmeyanagiThicknessInput, ameyanagi_suppression_exact,
+    };
 
     #[test]
     fn test_booth_thick_fe2o3() {
@@ -428,7 +478,10 @@ mod tests {
         for (i, &ri) in r.iter().enumerate() {
             let si = result.s[i];
             let expected = (1.0 - si) / (1.0 + si * chi_true);
-            assert!((ri - expected).abs() < 1e-12, "i={i}, ri={ri}, expected={expected}");
+            assert!(
+                (ri - expected).abs() < 1e-12,
+                "i={i}, ri={ri}, expected={expected}"
+            );
         }
     }
 
@@ -450,7 +503,60 @@ mod tests {
         let chi_exp: Vec<f64> = r.iter().map(|ri| ri * chi_true).collect();
         let chi_corr = result.correct_chi(&chi_exp, density, thickness_um);
         for (i, &c) in chi_corr.iter().enumerate() {
-            assert!((c - chi_true).abs() < 1e-6, "roundtrip mismatch at {i}: {c}");
+            assert!(
+                (c - chi_true).abs() < 1e-6,
+                "roundtrip mismatch at {i}: {c}"
+            );
         }
+    }
+
+    #[test]
+    fn test_booth_reference_is_close_to_ameyanagi_after_mu_unification() {
+        let energies: Vec<f64> = (7000..=8000).step_by(2).map(|e| e as f64).collect();
+        let density = 5.24;
+        let chi = 0.2;
+        let thickness_cm = 0.01;
+        let phi = std::f64::consts::FRAC_PI_4;
+        let theta = std::f64::consts::FRAC_PI_4;
+
+        let ameyanagi = ameyanagi_suppression_exact(
+            "Fe2O3",
+            "Fe",
+            "K",
+            &energies,
+            AmeyanagiSuppressionSettings {
+                density_g_cm3: density,
+                phi_rad: phi,
+                theta_rad: theta,
+                thickness_input: AmeyanagiThicknessInput::ThicknessCm(thickness_cm),
+                chi_assumed: chi,
+            },
+        )
+        .unwrap();
+
+        let booth_ref = booth_suppression_reference(
+            "Fe2O3",
+            "Fe",
+            "K",
+            &energies,
+            None,
+            thickness_cm * 1.0e4,
+            density,
+            chi,
+        )
+        .unwrap();
+
+        let mean_abs_diff = ameyanagi
+            .suppression_factor
+            .iter()
+            .zip(booth_ref.suppression_factor.iter())
+            .map(|(a, b)| (a - b).abs())
+            .sum::<f64>()
+            / energies.len() as f64;
+
+        assert!(
+            mean_abs_diff < 0.12,
+            "unexpectedly large A-vs-Booth-ref gap: {mean_abs_diff}"
+        );
     }
 }

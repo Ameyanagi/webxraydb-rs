@@ -38,7 +38,7 @@ All $\mu$ values below are **linear absorption coefficients** (cm⁻¹) = mass a
 | Symbol | Definition |
 |--------|------------|
 | $\mu_a(E)$ | Absorption of the central (absorbing) element at energy $E$ |
-| $\bar{\mu}_a$ | Smooth (non-oscillatory) part of $\mu_a$; the edge-jump contribution obtained by subtracting $\mu_a(E_\text{edge} - 200\,\text{eV})$ |
+| $\bar{\mu}_a$ | Smooth edge contribution of $\mu_a$ from a pre-edge trendline subtraction over $[E_0-200,\,E_0-30]$ eV; fallback uses $\mu_a(E_0-200\,\text{eV})$ |
 | $\mu_T(E)$ | Total absorption of all elements at energy $E$ |
 | $\bar{\mu}_T$ | Smooth part of $\mu_T$ (from tabulated cross-sections) |
 | $\mu_f$ | Total absorption of all elements at the fluorescence energy $E_f$ |
@@ -89,8 +89,8 @@ $$
 where:
 
 - $\bar{\mu}_T(E)$ is the compound linear attenuation at incident energy $E$.
-- $\bar{\mu}_a(E)$ is the absorber linear attenuation contribution:
-  $\rho\,w_a\,(\mu/\rho)_a(E)$.
+- $\bar{\mu}_a(E)$ is the absorber edge contribution:
+  $\max\!\left(\rho\,w_a\,(\mu/\rho)_a(E)-\mu_{\text{pre-trend}}(E),\,0\right)$.
 - $\mu_f$ is fluorescence-weighted compound attenuation:
   $\mu_f = \sum_j w_j\,\mu(E_{f,j})$ with normalized emission weights
   $\sum_j w_j = 1$.

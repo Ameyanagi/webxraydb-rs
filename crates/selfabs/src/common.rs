@@ -156,6 +156,160 @@ pub(crate) fn weighted_mu_total(
     Ok(total)
 }
 
+/// Convert formula stoichiometry to mass fractions for each element.
+pub(crate) fn composition_mass_fractions(
+    db: &XrayDb,
+    composition: &HashMap<String, f64>,
+) -> Result<Vec<(String, f64)>, SelfAbsError> {
+    let mut masses = Vec::with_capacity(composition.len());
+    let mut total = 0.0;
+
+    for (sym, &count) in composition {
+        let mm = db.molar_mass(sym)?;
+        let mass = count * mm;
+        masses.push((sym.clone(), mass));
+        total += mass;
+    }
+
+    if total <= 0.0 || !total.is_finite() {
+        return Err(SelfAbsError::InsufficientData(
+            "formula produced non-positive total mass".to_string(),
+        ));
+    }
+
+    Ok(masses
+        .into_iter()
+        .map(|(sym, m)| (sym, m / total))
+        .collect())
+}
+
+/// Compute compound linear attenuation μ(E) in cm^-1 from mass fractions.
+pub(crate) fn compound_mu_linear(
+    db: &XrayDb,
+    mass_fractions: &[(String, f64)],
+    density_g_cm3: f64,
+    energies_ev: &[f64],
+) -> Result<Vec<f64>, SelfAbsError> {
+    let mut mu_comp_mass = vec![0.0f64; energies_ev.len()];
+    for (sym, &w) in mass_fractions.iter().map(|(s, w)| (s, w)) {
+        let mu = db.mu_elam(sym, energies_ev, CrossSectionKind::Photo)?;
+        for (i, &v) in mu.iter().enumerate() {
+            mu_comp_mass[i] += w * v;
+        }
+    }
+    Ok(mu_comp_mass
+        .into_iter()
+        .map(|mu_rho| density_g_cm3 * mu_rho)
+        .collect())
+}
+
+/// Compute compound linear attenuation μ(E) at one energy in cm^-1.
+pub(crate) fn compound_mu_linear_single(
+    db: &XrayDb,
+    mass_fractions: &[(String, f64)],
+    density_g_cm3: f64,
+    energy_ev: f64,
+) -> Result<f64, SelfAbsError> {
+    let mut mu_comp_mass = 0.0;
+    for (sym, &w) in mass_fractions.iter().map(|(s, w)| (s, w)) {
+        let mu = db.mu_elam(sym, &[energy_ev], CrossSectionKind::Photo)?;
+        mu_comp_mass += w * mu[0];
+    }
+    Ok(density_g_cm3 * mu_comp_mass)
+}
+
+/// Compute absorber edge contribution μ̄_a(E) in cm^-1 using a pre-edge trendline.
+///
+/// Definition:
+/// `μ̄_a(E) = max(μ_abs_raw(E) - μ_pretrend(E), 0)`
+///
+/// with:
+/// `μ_abs_raw(E) = ρ * w_a * (μ/ρ)_absorber(E)`.
+///
+/// The pre-edge trendline is fit over `[E0 - 200 eV, E0 - 30 eV]`.
+/// If fitting is unstable or there are insufficient points, a scalar baseline
+/// at `E0 - 200 eV` is used.
+pub(crate) fn absorber_edge_mu_linear_trendline(
+    db: &XrayDb,
+    info: &SampleInfo,
+    energies_ev: &[f64],
+    density_g_cm3: f64,
+) -> Result<Vec<f64>, SelfAbsError> {
+    if !density_g_cm3.is_finite() || density_g_cm3 <= 0.0 {
+        return Err(SelfAbsError::InsufficientData(
+            "density must be finite and > 0".to_string(),
+        ));
+    }
+    if energies_ev.is_empty() {
+        return Err(SelfAbsError::InsufficientData(
+            "energy grid must not be empty".to_string(),
+        ));
+    }
+
+    let mass_fractions = composition_mass_fractions(db, &info.composition)?;
+    let w_absorber = mass_fractions
+        .iter()
+        .find_map(|(sym, w)| (sym == &info.central_symbol).then_some(*w))
+        .ok_or_else(|| {
+            SelfAbsError::InsufficientData(format!(
+                "absorber {} not found in mass fractions",
+                info.central_symbol
+            ))
+        })?;
+
+    let mu_abs_mass = db.mu_elam(&info.central_symbol, energies_ev, CrossSectionKind::Photo)?;
+    let mu_abs_raw: Vec<f64> = mu_abs_mass
+        .iter()
+        .map(|&mu_rho| density_g_cm3 * w_absorber * mu_rho)
+        .collect();
+
+    const PRE_EDGE_START_REL_EV: f64 = -200.0;
+    const PRE_EDGE_END_REL_EV: f64 = -30.0;
+    const PRE_EDGE_FALLBACK_REL_EV: f64 = -200.0;
+    const N_VICTOREEN: i32 = 0;
+
+    let pre_start = info.edge_energy + PRE_EDGE_START_REL_EV;
+    let pre_end = info.edge_energy + PRE_EDGE_END_REL_EV;
+    let (fit_min, fit_max) = if pre_start <= pre_end {
+        (pre_start, pre_end)
+    } else {
+        (pre_end, pre_start)
+    };
+
+    let mut fit_x = Vec::new();
+    let mut fit_y = Vec::new();
+    for (&e, &mu_raw) in energies_ev.iter().zip(mu_abs_raw.iter()) {
+        if e >= fit_min && e <= fit_max && e.is_finite() && mu_raw.is_finite() {
+            let y = mu_raw * e.powi(N_VICTOREEN);
+            if y.is_finite() {
+                fit_x.push(e);
+                fit_y.push(y);
+            }
+        }
+    }
+
+    let baseline: Vec<f64> = if let Some((intercept, slope)) = fit_line(&fit_x, &fit_y) {
+        energies_ev
+            .iter()
+            .map(|&e| {
+                let y = (intercept + slope * e) * e.powi(-N_VICTOREEN);
+                if y.is_finite() { y.max(0.0) } else { 0.0 }
+            })
+            .collect()
+    } else {
+        let e_pre = info.edge_energy + PRE_EDGE_FALLBACK_REL_EV;
+        let mu_pre_mass = db.mu_elam(&info.central_symbol, &[e_pre], CrossSectionKind::Photo)?[0];
+        let mu_pre = (density_g_cm3 * w_absorber * mu_pre_mass).max(0.0);
+        vec![mu_pre; energies_ev.len()]
+    };
+
+    Ok(mu_abs_raw
+        .iter()
+        .zip(baseline.iter())
+        .map(|(&raw, &base)| (raw - base).max(0.0))
+        .collect())
+}
+
 /// Compute stoichiometry-weighted mu for the absorber only.
 ///
 /// `subtract_pre_edge`: if true, subtracts μ(E_edge − 200 eV) to get the
@@ -253,6 +407,46 @@ pub(crate) fn fit_ln_vs_x(x: &[f64], y: &[f64]) -> (f64, f64) {
     let slope = (nf * sxy - sx * sy) / denom;
     let intercept = (sy - slope * sx) / nf;
     (intercept, slope)
+}
+
+fn fit_line(x: &[f64], y: &[f64]) -> Option<(f64, f64)> {
+    if x.len() != y.len() || x.len() < 2 {
+        return None;
+    }
+
+    let mut sx = 0.0;
+    let mut sy = 0.0;
+    let mut sxx = 0.0;
+    let mut sxy = 0.0;
+    let mut n = 0u32;
+
+    for (&xi, &yi) in x.iter().zip(y.iter()) {
+        if !xi.is_finite() || !yi.is_finite() {
+            continue;
+        }
+        sx += xi;
+        sy += yi;
+        sxx += xi * xi;
+        sxy += xi * yi;
+        n += 1;
+    }
+
+    if n < 2 {
+        return None;
+    }
+
+    let nf = n as f64;
+    let denom = nf * sxx - sx * sx;
+    if !denom.is_finite() || denom.abs() < 1e-30 {
+        return None;
+    }
+
+    let slope = (nf * sxy - sx * sy) / denom;
+    let intercept = (sy - slope * sx) / nf;
+    if !slope.is_finite() || !intercept.is_finite() {
+        return None;
+    }
+    Some((intercept, slope))
 }
 
 /// Convert energy array to k array. k = 0 for E ≤ E_edge.

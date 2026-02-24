@@ -10,9 +10,12 @@
 
 use std::f64::consts::PI;
 
-use xraydb::{CrossSectionKind, XrayDb};
+use xraydb::XrayDb;
 
-use crate::common::{SampleInfo, SelfAbsError};
+use crate::common::{
+    SampleInfo, SelfAbsError, absorber_edge_mu_linear_trendline, composition_mass_fractions,
+    compound_mu_linear, compound_mu_linear_single,
+};
 
 /// Thickness input for Ameyanagi exact suppression.
 #[derive(Debug, Clone, Copy)]
@@ -170,23 +173,9 @@ pub fn ameyanagi_suppression_exact(
     let info = SampleInfo::new(&db, formula, central_element, edge)?;
 
     let mass_fractions = composition_mass_fractions(&db, &info.composition)?;
-    let w_absorber = mass_fractions
-        .iter()
-        .find_map(|(sym, w)| (sym == &info.central_symbol).then_some(*w))
-        .ok_or_else(|| {
-            SelfAbsError::InsufficientData(format!(
-                "absorber {} not found in mass fractions",
-                info.central_symbol
-            ))
-        })?;
-
     // Step 1/2: linear attenuation terms in cm^-1
     let mu_total = compound_mu_linear(&db, &mass_fractions, density_g_cm3, energies_ev)?;
-    let mu_abs_mass = db.mu_elam(&info.central_symbol, energies_ev, CrossSectionKind::Photo)?;
-    let mu_a: Vec<f64> = mu_abs_mass
-        .iter()
-        .map(|&mu_rho| density_g_cm3 * w_absorber * mu_rho)
-        .collect();
+    let mu_a = absorber_edge_mu_linear_trendline(&db, &info, energies_ev, density_g_cm3)?;
 
     // Step 3: fluorescence attenuation weighted over emission lines.
     let (mu_f, fluorescence_energy_weighted) = weighted_fluorescence_mu(
@@ -253,51 +242,6 @@ pub fn ameyanagi_suppression_exact(
     })
 }
 
-fn composition_mass_fractions(
-    db: &XrayDb,
-    composition: &std::collections::HashMap<String, f64>,
-) -> Result<Vec<(String, f64)>, SelfAbsError> {
-    let mut masses = Vec::with_capacity(composition.len());
-    let mut total = 0.0;
-
-    for (sym, &count) in composition {
-        let mm = db.molar_mass(sym)?;
-        let mass = count * mm;
-        masses.push((sym.clone(), mass));
-        total += mass;
-    }
-
-    if total <= 0.0 || !total.is_finite() {
-        return Err(SelfAbsError::InsufficientData(
-            "formula produced non-positive total mass".to_string(),
-        ));
-    }
-
-    Ok(masses
-        .into_iter()
-        .map(|(sym, m)| (sym, m / total))
-        .collect())
-}
-
-fn compound_mu_linear(
-    db: &XrayDb,
-    mass_fractions: &[(String, f64)],
-    density_g_cm3: f64,
-    energies_ev: &[f64],
-) -> Result<Vec<f64>, SelfAbsError> {
-    let mut mu_comp_mass = vec![0.0f64; energies_ev.len()];
-    for (sym, &w) in mass_fractions.iter().map(|(s, w)| (s, w)) {
-        let mu = db.mu_elam(sym, energies_ev, CrossSectionKind::Photo)?;
-        for (i, &v) in mu.iter().enumerate() {
-            mu_comp_mass[i] += w * v;
-        }
-    }
-    Ok(mu_comp_mass
-        .into_iter()
-        .map(|mu_rho| density_g_cm3 * mu_rho)
-        .collect())
-}
-
 fn weighted_fluorescence_mu(
     db: &XrayDb,
     mass_fractions: &[(String, f64)],
@@ -315,7 +259,7 @@ fn weighted_fluorescence_mu(
             continue;
         }
         let w = line.intensity;
-        let mu_e = compound_mu_single_energy(db, mass_fractions, density_g_cm3, line.energy)?;
+        let mu_e = compound_mu_linear_single(db, mass_fractions, density_g_cm3, line.energy)?;
         weighted_mu_f += w * mu_e;
         weighted_energy += w * line.energy;
         weight_sum += w;
@@ -328,20 +272,6 @@ fn weighted_fluorescence_mu(
     }
 
     Ok((weighted_mu_f / weight_sum, weighted_energy / weight_sum))
-}
-
-fn compound_mu_single_energy(
-    db: &XrayDb,
-    mass_fractions: &[(String, f64)],
-    density_g_cm3: f64,
-    energy_ev: f64,
-) -> Result<f64, SelfAbsError> {
-    let mut mu_comp_mass = 0.0;
-    for (sym, &w) in mass_fractions.iter().map(|(s, w)| (s, w)) {
-        let mu = db.mu_elam(sym, &[energy_ev], CrossSectionKind::Photo)?;
-        mu_comp_mass += w * mu[0];
-    }
-    Ok(density_g_cm3 * mu_comp_mass)
 }
 
 fn one_minus_exp_neg(x: f64) -> f64 {
@@ -482,9 +412,43 @@ mod tests {
         .unwrap();
 
         assert!(
-            r.suppression_factor.iter().all(|&v| v.is_finite() && v > 0.0),
+            r.suppression_factor
+                .iter()
+                .all(|&v| v.is_finite() && v > 0.0),
             "expected all R(E,chi)>0 for positive chi"
         );
+    }
+
+    #[test]
+    fn test_mu_a_trendline_is_nonnegative_and_preedge_small() {
+        let db = XrayDb::new();
+        let info = SampleInfo::new(&db, "Fe2O3", "Fe", "K").unwrap();
+        let e0 = info.edge_energy;
+        let energies: Vec<f64> = (0..=300).map(|i| e0 - 250.0 + 2.0 * i as f64).collect();
+        let mu_a = absorber_edge_mu_linear_trendline(&db, &info, &energies, 5.24).unwrap();
+
+        assert_eq!(mu_a.len(), energies.len());
+        assert!(mu_a.iter().all(|v| v.is_finite() && *v >= 0.0));
+
+        let mut pre_sum = 0.0;
+        let mut pre_n = 0usize;
+        let mut post_sum = 0.0;
+        let mut post_n = 0usize;
+        for (&e, &m) in energies.iter().zip(mu_a.iter()) {
+            if e <= e0 - 40.0 {
+                pre_sum += m;
+                pre_n += 1;
+            }
+            if e >= e0 + 40.0 {
+                post_sum += m;
+                post_n += 1;
+            }
+        }
+
+        assert!(pre_n > 0 && post_n > 0);
+        let pre_mean = pre_sum / pre_n as f64;
+        let post_mean = post_sum / post_n as f64;
+        assert!(pre_mean < 0.25 * post_mean.max(1e-12));
     }
 
     #[test]
@@ -514,18 +478,8 @@ mod tests {
         let db = XrayDb::new();
         let info = SampleInfo::new(&db, "Fe2O3", "Fe", "K").unwrap();
         let mass_fractions = composition_mass_fractions(&db, &info.composition).unwrap();
-        let w_absorber = mass_fractions
-            .iter()
-            .find_map(|(sym, w)| (sym == &info.central_symbol).then_some(*w))
-            .unwrap();
         let mu_total = compound_mu_linear(&db, &mass_fractions, density, &energies).unwrap();
-        let mu_abs_mass = db
-            .mu_elam(&info.central_symbol, &energies, CrossSectionKind::Photo)
-            .unwrap();
-        let mu_a: Vec<f64> = mu_abs_mass
-            .iter()
-            .map(|&mu_rho| density * w_absorber * mu_rho)
-            .collect();
+        let mu_a = absorber_edge_mu_linear_trendline(&db, &info, &energies, density).unwrap();
         let (mu_f, _) =
             weighted_fluorescence_mu(&db, &mass_fractions, density, &info.central_symbol, "K")
                 .unwrap();
