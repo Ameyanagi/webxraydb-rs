@@ -76,19 +76,22 @@ const THEME_OPTIONS: { value: ThemePreset; label: string; hue: string }[] = [
 
 function NavList({ onNavigate }: { onNavigate?: () => void }) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {navSections.map((section) => (
-        <div key={section.title}>
-          <h3 className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/80">
+        <div
+          key={section.title}
+          className="rounded-md border border-border/70 bg-card/40 p-1"
+        >
+          <h3 className="mb-1 rounded-sm bg-secondary/70 px-2 py-1 text-[11px] font-bold uppercase tracking-[0.08em] text-foreground/90">
             {section.title}
           </h3>
-          <ul className="space-y-1">
+          <ul className="space-y-1 pl-2">
             {section.items.map((item) => (
               <li key={item.to}>
                 <Link
                   to={item.to}
                   onClick={onNavigate}
-                  className="block rounded-md px-3 py-2.5 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground [&.active]:bg-accent [&.active]:text-accent-foreground"
+                  className="block rounded-md px-2.5 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground [&.active]:bg-accent [&.active]:font-medium [&.active]:text-accent-foreground"
                 >
                   {item.label}
                 </Link>
