@@ -21,7 +21,7 @@ import {
 } from "~/lib/sample-preparation-helper";
 import { errorState, readyState, type CalculationState } from "~/lib/ui-state";
 import {
-  material_mu,
+  mu_elam,
   molar_mass,
   parse_formula,
   sa_ameyanagi,
@@ -278,7 +278,30 @@ function SamplePreparationHelperPage() {
   const massMu = useCallback(
     (formula: string, energies: Float64Array): Float64Array | null => {
       try {
-        return material_mu(formula, 1.0, energies, "total");
+        const parsed = parse_formula(formula);
+        const components = parsed.components as { symbol: string; count: number }[];
+        if (components.length === 0) return null;
+
+        const stoich = new Map<string, number>();
+        for (const c of components) {
+          stoich.set(c.symbol, (stoich.get(c.symbol) ?? 0) + c.count);
+        }
+
+        let formulaMass = 0;
+        for (const [symbol, count] of stoich.entries()) {
+          formulaMass += molar_mass(symbol) * count;
+        }
+        if (!(formulaMass > 0) || !Number.isFinite(formulaMass)) return null;
+
+        const result = new Float64Array(energies.length);
+        for (const [symbol, count] of stoich.entries()) {
+          const massFraction = (molar_mass(symbol) * count) / formulaMass;
+          const mu = mu_elam(symbol, energies, "total");
+          for (let i = 0; i < energies.length; i++) {
+            result[i] += massFraction * mu[i];
+          }
+        }
+        return result;
       } catch {
         return null;
       }
