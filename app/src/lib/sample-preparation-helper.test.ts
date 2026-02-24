@@ -4,14 +4,19 @@ import {
   classifyFluorescence,
   classifyTransmission,
   computeSuggestedTargetEdgeStep,
+  solveDilutionForFluorescence,
+  solveThicknessForFluorescence,
   summarizeSuitability,
 } from "~/lib/sample-preparation-helper";
 
 describe("sample preparation helper utils", () => {
-  it("classifies transmission threshold at μt=4", () => {
-    expect(classifyTransmission(3.99).suitable).toBe(true);
-    expect(classifyTransmission(4.0).suitable).toBe(false);
-    expect(classifyTransmission(4.01).suitable).toBe(false);
+  it("classifies transmission with edge-step and absorption limits", () => {
+    expect(classifyTransmission(0.2, 4.0).suitable).toBe(true);
+    expect(classifyTransmission(2.0, 4.0).suitable).toBe(true);
+    expect(classifyTransmission(0.19, 3.0).suitable).toBe(false);
+    expect(classifyTransmission(2.01, 3.0).suitable).toBe(false);
+    expect(classifyTransmission(1.0, 4.01).suitable).toBe(false);
+    expect(classifyTransmission(0.1, 5.0).suitable).toBe(false);
   });
 
   it("classifies fluorescence threshold at min R%=90", () => {
@@ -68,5 +73,56 @@ describe("sample preparation helper utils", () => {
       targetAbsorption: 4,
     });
     expect(suggested).toBeNull();
+  });
+
+  it("solves dilution target with max-feasible search", () => {
+    const result = solveDilutionForFluorescence({
+      min: 0.0,
+      max: 1.0,
+      evaluateMinRetainedPercent: (x) => 100 - 20 * x,
+      targetMinRetainedPercent: 90,
+    });
+    expect(result).not.toBeNull();
+    expect(result?.feasible).toBe(true);
+    if (result?.feasible) {
+      expect(result.value).toBeCloseTo(0.5, 2);
+      expect(result.minRetainedPercent).toBeGreaterThanOrEqual(89.9);
+    }
+  });
+
+  it("returns infeasible for dilution when target cannot be reached", () => {
+    const result = solveDilutionForFluorescence({
+      min: 0.0,
+      max: 1.0,
+      evaluateMinRetainedPercent: () => 85,
+      targetMinRetainedPercent: 90,
+    });
+    expect(result).not.toBeNull();
+    expect(result?.feasible).toBe(false);
+  });
+
+  it("solves thickness target with max-feasible search", () => {
+    const result = solveThicknessForFluorescence({
+      min: 0.0,
+      max: 2.0,
+      evaluateMinRetainedPercent: (d) => 100 - 10 * d,
+      targetMinRetainedPercent: 90,
+    });
+    expect(result).not.toBeNull();
+    expect(result?.feasible).toBe(true);
+    if (result?.feasible) {
+      expect(result.value).toBeCloseTo(1.0, 2);
+    }
+  });
+
+  it("returns infeasible for thickness when target cannot be reached", () => {
+    const result = solveThicknessForFluorescence({
+      min: 0.0,
+      max: 2.0,
+      evaluateMinRetainedPercent: () => 60,
+      targetMinRetainedPercent: 90,
+    });
+    expect(result).not.toBeNull();
+    expect(result?.feasible).toBe(false);
   });
 });

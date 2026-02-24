@@ -19,6 +19,33 @@ export interface SuggestedTargetInput {
   targetAbsorption: number;
 }
 
+export interface FluorescenceSolveInputs {
+  min: number;
+  max: number;
+  evaluateMinRetainedPercent: (value: number) => number | null;
+  targetMinRetainedPercent?: number;
+  targetTolerance?: number;
+  valueTolerance?: number;
+  maxIterations?: number;
+  samplePoints?: number;
+}
+
+export type FluorescenceSolveResult =
+  | {
+      feasible: true;
+      value: number;
+      minRetainedPercent: number;
+      iterations: number;
+      converged: boolean;
+      note?: string;
+    }
+  | {
+      feasible: false;
+      reason: string;
+      bestValue: number;
+      bestMinRetainedPercent: number;
+    };
+
 export function computeAbsorptionMetrics(
   sampleMuBelow: number,
   sampleMuAbove: number,
@@ -51,14 +78,35 @@ export function computeAbsorptionMetrics(
   };
 }
 
-export function classifyTransmission(absorptionAbove: number): {
+export function classifyTransmission(
+  achievedEdgeStep: number,
+  absorptionAbove: number,
+): {
   suitable: boolean;
   label: string;
 } {
-  if (absorptionAbove < 4.0) {
+  const edgeStepOk = achievedEdgeStep >= 0.2 && achievedEdgeStep <= 2.0;
+  const absorptionOk = absorptionAbove <= 4.0;
+  if (edgeStepOk && absorptionOk) {
     return { suitable: true, label: "Transmission suitable" };
   }
-  return { suitable: false, label: "Transmission not suitable" };
+
+  if (!edgeStepOk && !absorptionOk) {
+    return {
+      suitable: false,
+      label: "Transmission not suitable (edge step out of 0.2-2.0, μt above 4.0)",
+    };
+  }
+  if (!edgeStepOk) {
+    return {
+      suitable: false,
+      label: "Transmission not suitable (edge step out of 0.2-2.0)",
+    };
+  }
+  return {
+    suitable: false,
+    label: "Transmission not suitable (μt above 4.0)",
+  };
 }
 
 export function classifyFluorescence(minRetainedPercent: number): {
@@ -168,4 +216,154 @@ export function computeSuggestedTargetEdgeStep(
 
   const suggested = 0.5 * (left + right);
   return Number.isFinite(suggested) ? suggested : null;
+}
+
+function safeEvaluate(
+  evaluate: (value: number) => number | null,
+  value: number,
+): number | null {
+  try {
+    const result = evaluate(value);
+    if (result == null || !Number.isFinite(result)) return null;
+    return result;
+  } catch {
+    return null;
+  }
+}
+
+function solveMaxFeasibleForFluorescence(
+  input: FluorescenceSolveInputs,
+): FluorescenceSolveResult | null {
+  if (
+    !Number.isFinite(input.min) ||
+    !Number.isFinite(input.max) ||
+    !(input.max > input.min)
+  ) {
+    return null;
+  }
+
+  const target = input.targetMinRetainedPercent ?? 90.0;
+  const targetTolerance = input.targetTolerance ?? 0.1;
+  const valueTolerance = input.valueTolerance ?? 1e-6;
+  const maxIterations = input.maxIterations ?? 80;
+  const samplePoints = Math.max(8, input.samplePoints ?? 64);
+  if (
+    !Number.isFinite(target) ||
+    !Number.isFinite(targetTolerance) ||
+    !Number.isFinite(valueTolerance) ||
+    !(targetTolerance > 0) ||
+    !(valueTolerance > 0) ||
+    !(maxIterations > 0) ||
+    !(samplePoints > 1)
+  ) {
+    return null;
+  }
+
+  let bestX = Number.NEGATIVE_INFINITY;
+  let bestY = Number.NEGATIVE_INFINITY;
+  let firstFailAboveBestX: number | null = null;
+
+  for (let i = 0; i < samplePoints; i++) {
+    const t = i / (samplePoints - 1);
+    const x = input.min + (input.max - input.min) * t;
+    const y = safeEvaluate(input.evaluateMinRetainedPercent, x);
+    if (y == null) continue;
+    if (y >= target && x > bestX) {
+      bestX = x;
+      bestY = y;
+      firstFailAboveBestX = null;
+      continue;
+    }
+    if (Number.isFinite(bestX) && x > bestX && y < target && firstFailAboveBestX == null) {
+      firstFailAboveBestX = x;
+    }
+  }
+
+  if (!Number.isFinite(bestX)) {
+    return {
+      feasible: false,
+      reason: `No value in [${input.min.toExponential(3)}, ${input.max.toExponential(3)}] achieves min R >= ${target.toFixed(1)}%`,
+      bestValue: input.min,
+      bestMinRetainedPercent: Number.isFinite(bestY) ? bestY : Number.NEGATIVE_INFINITY,
+    };
+  }
+
+  if (Math.abs(bestX - input.max) <= valueTolerance || firstFailAboveBestX == null) {
+    return {
+      feasible: true,
+      value: bestX,
+      minRetainedPercent: bestY,
+      iterations: 0,
+      converged: true,
+      note: bestX >= input.max - valueTolerance
+        ? "Feasible at upper search bound"
+        : "No failing point found above sampled feasible values",
+    };
+  }
+
+  let low = bestX;
+  let high = firstFailAboveBestX;
+  let yLow = safeEvaluate(input.evaluateMinRetainedPercent, low);
+  let yHigh = safeEvaluate(input.evaluateMinRetainedPercent, high);
+  if (yLow == null || yHigh == null) {
+    return {
+      feasible: true,
+      value: bestX,
+      minRetainedPercent: bestY,
+      iterations: 0,
+      converged: false,
+      note: "Fell back to sampled feasible point due to unstable evaluation",
+    };
+  }
+
+  if (yLow < target || yHigh >= target) {
+    return {
+      feasible: true,
+      value: bestX,
+      minRetainedPercent: bestY,
+      iterations: 0,
+      converged: false,
+      note: "Fell back to sampled feasible point due to non-bracketed evaluations",
+    };
+  }
+
+  let iterations = 0;
+  while (iterations < maxIterations && Math.abs(high - low) > valueTolerance) {
+    iterations += 1;
+    const mid = 0.5 * (low + high);
+    const yMid = safeEvaluate(input.evaluateMinRetainedPercent, mid);
+    if (yMid == null) {
+      high = mid;
+      continue;
+    }
+    if (yMid >= target) {
+      low = mid;
+      yLow = yMid;
+    } else {
+      high = mid;
+      yHigh = yMid;
+    }
+    if (Math.abs(yMid - target) <= targetTolerance) break;
+  }
+
+  return {
+    feasible: true,
+    value: low,
+    minRetainedPercent: yLow,
+    iterations,
+    converged: Math.abs(high - low) <= valueTolerance || Math.abs(yLow - target) <= targetTolerance,
+    note: yHigh < target ? undefined : "Final bracket did not strictly close below target",
+  };
+}
+
+export function solveDilutionForFluorescence(
+  input: FluorescenceSolveInputs,
+): FluorescenceSolveResult | null {
+  return solveMaxFeasibleForFluorescence(input);
+}
+
+export function solveThicknessForFluorescence(
+  input: FluorescenceSolveInputs,
+): FluorescenceSolveResult | null {
+  return solveMaxFeasibleForFluorescence(input);
 }

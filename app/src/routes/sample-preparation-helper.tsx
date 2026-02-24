@@ -15,6 +15,8 @@ import {
   classifyTransmission,
   computeAbsorptionMetrics,
   computeSuggestedTargetEdgeStep,
+  solveDilutionForFluorescence,
+  solveThicknessForFluorescence,
   summarizeSuitability,
 } from "~/lib/sample-preparation-helper";
 import { errorState, readyState, type CalculationState } from "~/lib/ui-state";
@@ -32,7 +34,12 @@ export const Route = createFileRoute("/sample-preparation-helper")({
   component: SamplePreparationHelperPage,
 });
 
-type CaseId = "pure" | "target" | "suggested";
+type CaseId =
+  | "pure"
+  | "target"
+  | "suggested"
+  | "fluo-dilution"
+  | "fluo-thickness";
 
 interface CaseResult {
   id: CaseId;
@@ -57,6 +64,9 @@ interface CaseResult {
   densityGcm3: number;
   mixtureFormula: string;
   rPercent: number[];
+  solvedThicknessCm?: number;
+  equivalentMassMg?: number;
+  solverNote?: string;
 }
 
 interface HelperCalculation {
@@ -359,6 +369,11 @@ function SamplePreparationHelperPage() {
         targetStep: number,
         sampleMassMg: number,
         diluentMassMg: number,
+        overrides?: {
+          solvedThicknessCm?: number;
+          equivalentMassMg?: number;
+          solverNote?: string;
+        },
       ): CaseResult | null => {
         if (sampleMassMg < -1e-6 || diluentMassMg < -1e-6) {
           return null;
@@ -386,7 +401,10 @@ function SamplePreparationHelperPage() {
           diluentEdgeStep * (diluentMassG / effectiveAreaCm2);
 
         const sampleFractionPct = (sampleMassG / totalMassG) * 100;
-        const transmission = classifyTransmission(absorption.absorptionAbove);
+        const transmission = classifyTransmission(
+          achievedEdgeStep,
+          absorption.absorptionAbove,
+        );
 
         const mixFormula = buildMixedFormula(
           sampleFormula,
@@ -445,6 +463,9 @@ function SamplePreparationHelperPage() {
           densityGcm3: mixDensity,
           mixtureFormula: mixFormula,
           rPercent,
+          solvedThicknessCm: overrides?.solvedThicknessCm,
+          equivalentMassMg: overrides?.equivalentMassMg,
+          solverNote: overrides?.solverNote,
         };
       };
 
@@ -513,6 +534,175 @@ function SamplePreparationHelperPage() {
           warnings.push(
             "No feasible diluted composition reaches μt=4 with current mass, diameter, and formulas.",
           );
+        }
+      }
+
+      const fluorescenceTargetPercent = 90.0;
+      const minSampleFraction = 1e-4;
+
+      const evaluateMinRBySampleFraction = (sampleFraction: number): number | null => {
+        const f = Math.min(1.0, Math.max(minSampleFraction, sampleFraction));
+        const sampleMass = totalMassMg * f;
+        const diluentMass = totalMassMg - sampleMass;
+        const probeCase = buildCase(
+          "fluo-dilution",
+          "probe",
+          targetEdgeStep,
+          sampleMass,
+          diluentMass,
+        );
+        return probeCase?.fluorescenceMinPercent ?? null;
+      };
+
+      const dilutionSolve = solveDilutionForFluorescence({
+        min: minSampleFraction,
+        max: 1.0,
+        evaluateMinRetainedPercent: evaluateMinRBySampleFraction,
+        targetMinRetainedPercent: fluorescenceTargetPercent,
+        targetTolerance: 0.1,
+        valueTolerance: 1e-5,
+        maxIterations: 80,
+        samplePoints: 96,
+      });
+
+      if (!dilutionSolve) {
+        warnings.push("Fluorescence dilution solver failed to initialize.");
+      }
+
+      let fluorescenceDilutionCase: CaseResult | null = null;
+      if (dilutionSolve?.feasible) {
+        const sampleMassMg = totalMassMg * dilutionSolve.value;
+        const diluentMassMg = totalMassMg - sampleMassMg;
+        const fluoCase = buildCase(
+          "fluo-dilution",
+          "Diluted for fluorescence (R>=90%)",
+          targetEdgeStep,
+          sampleMassMg,
+          diluentMassMg,
+          { solverNote: dilutionSolve.note },
+        );
+        if (fluoCase) {
+          cases.push(fluoCase);
+          fluorescenceDilutionCase = fluoCase;
+        } else {
+          warnings.push("Could not build fluorescence dilution case from solved ratio.");
+        }
+      } else if (dilutionSolve) {
+        const sampleMassMg = totalMassMg * dilutionSolve.bestValue;
+        const diluentMassMg = totalMassMg - sampleMassMg;
+        const fluoCase = buildCase(
+          "fluo-dilution",
+          "Diluted for fluorescence (best effort)",
+          targetEdgeStep,
+          sampleMassMg,
+          diluentMassMg,
+          { solverNote: dilutionSolve.reason },
+        );
+        if (fluoCase) {
+          cases.push(fluoCase);
+          fluorescenceDilutionCase = fluoCase;
+        }
+        warnings.push(dilutionSolve.reason);
+      }
+
+      if (fluorescenceDilutionCase) {
+        const sampleMassFraction = fluorescenceDilutionCase.sampleFractionPct / 100.0;
+        const densityMix = 1.0 /
+          (
+            sampleMassFraction / sampleDensityGcm3 +
+            (1.0 - sampleMassFraction) / diluentDensityGcm3
+          );
+
+        if (!(densityMix > 0) || !Number.isFinite(densityMix)) {
+          warnings.push("Could not compute mixed density for fluorescence thickness solver.");
+        } else {
+          const evaluateMinRByThickness = (thicknessCm: number): number | null => {
+            if (!(thicknessCm > 0) || !Number.isFinite(thicknessCm)) return null;
+            const totalMassG = densityMix * pelletAreaCm2 * thicknessCm;
+            if (!(totalMassG > 0) || !Number.isFinite(totalMassG)) return null;
+            const sampleMassMg = totalMassG * 1000 * sampleMassFraction;
+            const diluentMassMg = totalMassG * 1000 * (1.0 - sampleMassFraction);
+            const probeCase = buildCase(
+              "fluo-thickness",
+              "probe",
+              targetEdgeStep,
+              sampleMassMg,
+              diluentMassMg,
+            );
+            return probeCase?.fluorescenceMinPercent ?? null;
+          };
+
+          let maxThicknessCm = Math.max(fluorescenceDilutionCase.thicknessCm, 1e-4);
+          let maxEval = evaluateMinRByThickness(maxThicknessCm);
+          let expandCount = 0;
+          while (
+            maxEval != null &&
+            maxEval >= fluorescenceTargetPercent &&
+            maxThicknessCm < 5.0 &&
+            expandCount < 16
+          ) {
+            maxThicknessCm *= 2.0;
+            maxEval = evaluateMinRByThickness(maxThicknessCm);
+            expandCount += 1;
+          }
+
+          const thicknessSolve = solveThicknessForFluorescence({
+            min: 1e-6,
+            max: maxThicknessCm,
+            evaluateMinRetainedPercent: evaluateMinRByThickness,
+            targetMinRetainedPercent: fluorescenceTargetPercent,
+            targetTolerance: 0.1,
+            valueTolerance: 1e-6,
+            maxIterations: 80,
+            samplePoints: 96,
+          });
+
+          if (!thicknessSolve) {
+            warnings.push("Fluorescence thickness solver failed to initialize.");
+          } else if (thicknessSolve.feasible) {
+            const solvedThicknessCm = thicknessSolve.value;
+            const equivalentMassMg = densityMix * pelletAreaCm2 * solvedThicknessCm * 1000;
+            const sampleMassMg = equivalentMassMg * sampleMassFraction;
+            const diluentMassMg = equivalentMassMg * (1.0 - sampleMassFraction);
+            const thicknessCase = buildCase(
+              "fluo-thickness",
+              "Thickness for fluorescence (R>=90%)",
+              targetEdgeStep,
+              sampleMassMg,
+              diluentMassMg,
+              {
+                solvedThicknessCm,
+                equivalentMassMg,
+                solverNote: thicknessSolve.note,
+              },
+            );
+            if (thicknessCase) {
+              cases.push(thicknessCase);
+            } else {
+              warnings.push("Could not build fluorescence thickness case from solved thickness.");
+            }
+          } else {
+            const fallbackThicknessCm = thicknessSolve.bestValue;
+            const fallbackMassMg = densityMix * pelletAreaCm2 * fallbackThicknessCm * 1000;
+            const sampleMassMg = fallbackMassMg * sampleMassFraction;
+            const diluentMassMg = fallbackMassMg * (1.0 - sampleMassFraction);
+            const fallbackCase = buildCase(
+              "fluo-thickness",
+              "Thickness for fluorescence (best effort)",
+              targetEdgeStep,
+              sampleMassMg,
+              diluentMassMg,
+              {
+                solvedThicknessCm: fallbackThicknessCm,
+                equivalentMassMg: fallbackMassMg,
+                solverNote: thicknessSolve.reason,
+              },
+            );
+            if (fallbackCase) {
+              cases.push(fallbackCase);
+            }
+            warnings.push(thicknessSolve.reason);
+          }
         }
       }
 
@@ -938,6 +1128,18 @@ function CaseCard({
         <Stat label="Transmission above" value={`${(info.transmissionAbove * 100).toFixed(1)}%`} />
         <Stat label="Min R(E,χ)" value={`${info.fluorescenceMinPercent.toFixed(1)}%`} />
         <Stat label="Mean R(E,χ)" value={`${info.fluorescenceMeanPercent.toFixed(1)}%`} />
+        {info.solvedThicknessCm != null && (
+          <Stat
+            label="Solved thickness"
+            value={`${info.solvedThicknessCm.toExponential(3)} cm`}
+          />
+        )}
+        {info.equivalentMassMg != null && (
+          <Stat
+            label="Equivalent mass"
+            value={`${info.equivalentMassMg.toFixed(2)} mg`}
+          />
+        )}
       </div>
 
       <div className="mt-3 space-y-1 text-xs">
@@ -952,6 +1154,9 @@ function CaseCard({
           ok={info.fluorescenceSuitable}
         />
         <StatusLine label="Overall" value={info.combinedLabel} ok={info.transmissionSuitable && info.fluorescenceSuitable} />
+        {info.solverNote && (
+          <p className="text-muted-foreground">{info.solverNote}</p>
+        )}
       </div>
     </button>
   );
