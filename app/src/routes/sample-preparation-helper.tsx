@@ -373,6 +373,11 @@ function SamplePreparationHelperPage() {
         return errorState("Sample and diluent edge steps are too similar");
       }
 
+      const totalMassG = totalMassMg / 1000;
+      const loadingGcm2 = totalMassG / effectiveAreaCm2;
+      const minReachableEdgeStep = Math.min(sampleEdgeStep, diluentEdgeStep) * loadingGcm2;
+      const maxReachableEdgeStep = Math.max(sampleEdgeStep, diluentEdgeStep) * loadingGcm2;
+
       const energyGrid = energyRange(eStart, eEnd, eStep);
       const energies = Array.from(energyGrid);
       const sampleMuCurveArr = massMu(sampleFormula, energyGrid);
@@ -506,19 +511,31 @@ function SamplePreparationHelperPage() {
       if (!targetMix) {
         return errorState("Could not compute dilution for the selected target edge step");
       }
-      const targetCase = buildCase(
-        "target",
-        "Diluted for target",
-        targetEdgeStep,
-        targetMix.sampleMassMg,
-        targetMix.diluentMassMg,
-      );
-      if (!targetCase) {
-        return errorState("Target dilution produced an invalid composition");
+      const targetMixFeasible =
+        targetMix.sampleMassMg >= -1e-6 && targetMix.diluentMassMg >= -1e-6;
+      let targetCase: CaseResult | null = null;
+      if (targetMixFeasible) {
+        targetCase = buildCase(
+          "target",
+          "Diluted for target",
+          targetEdgeStep,
+          targetMix.sampleMassMg,
+          targetMix.diluentMassMg,
+        );
+        if (targetCase) {
+          cases.push(targetCase);
+        } else {
+          warnings.push("Could not build the target dilution case from the computed composition.");
+        }
+      } else {
+        const minDisplay = Math.max(0, minReachableEdgeStep);
+        const maxDisplay = Math.max(0, maxReachableEdgeStep);
+        warnings.push(
+          `Target edge step ${targetEdgeStep.toFixed(3)} is not reachable with non-negative masses for this pellet. Reachable range is approximately ${minDisplay.toFixed(3)} to ${maxDisplay.toFixed(3)}.`,
+        );
       }
-      cases.push(targetCase);
 
-      if (!targetCase.transmissionSuitable) {
+      if (targetCase && !targetCase.transmissionSuitable) {
         const suggestedTarget = computeSuggestedTargetEdgeStep({
           sampleEdgeStep,
           diluentEdgeStep,
