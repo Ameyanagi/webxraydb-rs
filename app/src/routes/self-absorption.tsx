@@ -147,7 +147,7 @@ const EDGE_OPTIONS = ["K", "L3", "L2", "L1", "M5", "M4", "M3"] as const;
 
 type ThicknessMode = "thickness" | "pellet";
 type AmeyanagiChiMode = "single" | "sweep";
-type PlotTraceMode = "ameyanagi" | "booth" | "both";
+type PlotTraceMode = "ameyanagi" | "booth";
 
 const AMEYANAGI_CHI_PRESETS = [0.05, 0.1, 0.2, 0.3] as const;
 const AMEYANAGI_MAX_CHI_VALUES = 8;
@@ -251,7 +251,7 @@ function SelfAbsorptionPage() {
   const [densityGcm3, setDensityGcm3] = useState(5.24);
   const [phiDeg, setPhiDeg] = useState(45);
   const [thetaDeg, setThetaDeg] = useState(45);
-  const [chiAssumed, setChiAssumed] = useState(0.2);
+  const [chiAssumed, setChiAssumed] = useState(0.1);
   const [ameyanagiChiMode, setAmeyanagiChiMode] = useState<AmeyanagiChiMode>("single");
   const [chiSweepPresets, setChiSweepPresets] = useState<number[]>([...AMEYANAGI_CHI_PRESETS]);
   const [chiSweepCustomInput, setChiSweepCustomInput] = useState("");
@@ -413,8 +413,8 @@ function SelfAbsorptionPage() {
       const chiValues = ameyanagiChiMode === "single"
         ? [chiAssumed]
         : ameyanagiChiSweepValues;
-      const showAmeyanagi = plotTraceMode === "ameyanagi" || plotTraceMode === "both";
-      const showBooth = plotTraceMode === "booth" || plotTraceMode === "both";
+      const showAmeyanagi = plotTraceMode === "ameyanagi";
+      const showBooth = plotTraceMode === "booth";
 
       for (const chi of chiValues) {
         const color = COLORS[colorIdx % COLORS.length];
@@ -592,15 +592,30 @@ function SelfAbsorptionPage() {
 
             <div>
               <label className="mb-1 block text-sm font-medium">Plot traces</label>
-              <select
-                value={plotTraceMode}
-                onChange={(e) => setPlotTraceMode(e.target.value as PlotTraceMode)}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              >
-                <option value="ameyanagi">Ameyanagi only</option>
-                <option value="booth">Booth ref only</option>
-                <option value="both">Ameyanagi + Booth</option>
-              </select>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPlotTraceMode("ameyanagi")}
+                  className={`rounded px-3 py-2 text-sm font-medium ${
+                    plotTraceMode === "ameyanagi"
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                  }`}
+                >
+                  Ameyanagi
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPlotTraceMode("booth")}
+                  className={`rounded px-3 py-2 text-sm font-medium ${
+                    plotTraceMode === "booth"
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                  }`}
+                >
+                  Booth
+                </button>
+              </div>
             </div>
 
             {ameyanagiChiMode === "single" ? (
@@ -796,7 +811,7 @@ function SelfAbsorptionPage() {
               traces={calcState.data?.ameyanagiRTraces ?? []}
               xTitle="Energy (eV)"
               yTitle="R(E, χ) retained (%)"
-              title={`${plotTraceMode === "ameyanagi" ? "Ameyanagi" : plotTraceMode === "booth" ? "Booth reference" : "Ameyanagi + Booth reference"} vs Energy (percent)${ameyanagiSweepActive ? " (multi-χ)" : ""}`}
+              title={`${plotTraceMode === "ameyanagi" ? "Ameyanagi" : "Booth reference"} vs Energy (percent)${ameyanagiSweepActive ? " (multi-χ)" : ""}`}
               height={380}
               showLogToggle={false}
               yRange={[0, 100]}
