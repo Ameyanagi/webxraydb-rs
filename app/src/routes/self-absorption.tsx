@@ -147,6 +147,7 @@ const EDGE_OPTIONS = ["K", "L3", "L2", "L1", "M5", "M4", "M3"] as const;
 
 type ThicknessMode = "thickness" | "pellet";
 type AmeyanagiChiMode = "single" | "sweep";
+type PlotTraceMode = "ameyanagi" | "booth" | "both";
 
 const AMEYANAGI_CHI_PRESETS = [0.05, 0.1, 0.2, 0.3] as const;
 const AMEYANAGI_MAX_CHI_VALUES = 8;
@@ -260,6 +261,7 @@ function SelfAbsorptionPage() {
   const [thicknessCm, setThicknessCm] = useState(0.01);
   const [pelletMassG, setPelletMassG] = useState(0.05);
   const [pelletDiameterCm, setPelletDiameterCm] = useState(1.0);
+  const [plotTraceMode, setPlotTraceMode] = useState<PlotTraceMode>("ameyanagi");
 
   const toggleChiPreset = (chi: number) => {
     setChiSweepCustomError(null);
@@ -368,7 +370,7 @@ function SelfAbsorptionPage() {
       ? chiSweepCustomValues
       : chiSweepPresets;
 
-    if (!(densityGcm3 > 0)) return errorState("Density must be > 0 g/cm³ for Ameyanagi");
+    if (!(densityGcm3 > 0)) return errorState("Density ρ must be > 0 g/cm³");
     if (!(phiDeg > 0 && phiDeg <= 90)) return errorState("Incident angle φ must be in degrees and in (0, 90]");
     if (!(thetaDeg > 0 && thetaDeg <= 90)) return errorState("Exit angle θ must be in degrees and in (0, 90]");
     if (ameyanagiChiMode === "single") {
@@ -411,76 +413,82 @@ function SelfAbsorptionPage() {
       const chiValues = ameyanagiChiMode === "single"
         ? [chiAssumed]
         : ameyanagiChiSweepValues;
+      const showAmeyanagi = plotTraceMode === "ameyanagi" || plotTraceMode === "both";
+      const showBooth = plotTraceMode === "booth" || plotTraceMode === "both";
 
       for (const chi of chiValues) {
         const color = COLORS[colorIdx % COLORS.length];
         colorIdx++;
-        const r = sa_ameyanagi(
-          formula.trim(),
-          element.trim(),
-          edge.trim(),
-          energies,
-          densityGcm3,
-          phiRad,
-          thetaRad,
-          thicknessMode === "thickness" ? thicknessCm : undefined,
-          thicknessMode === "pellet" ? pelletMassG : undefined,
-          thicknessMode === "pellet" ? pelletDiameterCm : undefined,
-          chi,
-        );
-        const rValues = r.suppression_factor as number[];
-        const rPercent = rValues.map((v: number) => v * 100);
         const chiLabel = formatChi(chi);
-        const ameyanagiName = ameyanagiChiMode === "single"
-          ? "Ameyanagi"
-          : `Ameyanagi χ=${chiLabel}`;
-        const ameyanagiLine = { color, width: 2 };
-        ameyanagiRTraces.push({ x: energyArr, y: rPercent, name: ameyanagiName, line: ameyanagiLine });
-        summary.push({
-          algorithm: ameyanagiName,
-          edgeEnergy: r.edge_energy,
-          fluorEnergy: r.fluorescence_energy_weighted,
-          rMin: r.r_min,
-          rMax: r.r_max,
-          rMean: r.r_mean,
-          interpretation: classifySuppression(r.r_mean),
-          thicknessCm: r.thickness_cm,
-          geometryG: r.geometry_g,
-          chiAssumed: chi,
-          muF: r.mu_f,
-          betaPath: r.beta,
-        });
+        if (showAmeyanagi) {
+          const r = sa_ameyanagi(
+            formula.trim(),
+            element.trim(),
+            edge.trim(),
+            energies,
+            densityGcm3,
+            phiRad,
+            thetaRad,
+            thicknessMode === "thickness" ? thicknessCm : undefined,
+            thicknessMode === "pellet" ? pelletMassG : undefined,
+            thicknessMode === "pellet" ? pelletDiameterCm : undefined,
+            chi,
+          );
+          const rValues = r.suppression_factor as number[];
+          const rPercent = rValues.map((v: number) => v * 100);
+          const ameyanagiName = ameyanagiChiMode === "single"
+            ? "Ameyanagi"
+            : `Ameyanagi χ=${chiLabel}`;
+          const ameyanagiLine = { color, width: 2 };
+          ameyanagiRTraces.push({ x: energyArr, y: rPercent, name: ameyanagiName, line: ameyanagiLine });
+          summary.push({
+            algorithm: ameyanagiName,
+            edgeEnergy: r.edge_energy,
+            fluorEnergy: r.fluorescence_energy_weighted,
+            rMin: r.r_min,
+            rMax: r.r_max,
+            rMean: r.r_mean,
+            interpretation: classifySuppression(r.r_mean),
+            thicknessCm: r.thickness_cm,
+            geometryG: r.geometry_g,
+            chiAssumed: chi,
+            muF: r.mu_f,
+            betaPath: r.beta,
+          });
+        }
 
-        const b = sa_booth_reference(
-          formula.trim(),
-          element.trim(),
-          edge.trim(),
-          energies,
-          phiDeg,
-          thetaDeg,
-          thicknessUmRef,
-          densityGcm3,
-          chi,
-        );
-        const bValues = b.suppression_factor as number[];
-        const bPercent = bValues.map((v: number) => v * 100);
-        const boothName = ameyanagiChiMode === "single"
-          ? "Booth ref"
-          : `Booth ref χ=${chiLabel}`;
-        const boothLine = { color, width: 2, dash: "dash" as const };
-        ameyanagiRTraces.push({ x: energyArr, y: bPercent, name: boothName, line: boothLine });
-        summary.push({
-          algorithm: boothName,
-          edgeEnergy: b.edge_energy,
-          fluorEnergy: b.fluorescence_energy,
-          rMin: b.r_min,
-          rMax: b.r_max,
-          rMean: b.r_mean,
-          interpretation: classifySuppression(b.r_mean),
-          isThick: b.is_thick,
-          thicknessCm: resolvedThicknessCm,
-          chiAssumed: chi,
-        });
+        if (showBooth) {
+          const b = sa_booth_reference(
+            formula.trim(),
+            element.trim(),
+            edge.trim(),
+            energies,
+            phiDeg,
+            thetaDeg,
+            thicknessUmRef,
+            densityGcm3,
+            chi,
+          );
+          const bValues = b.suppression_factor as number[];
+          const bPercent = bValues.map((v: number) => v * 100);
+          const boothName = ameyanagiChiMode === "single"
+            ? "Booth ref"
+            : `Booth ref χ=${chiLabel}`;
+          const boothLine = { color, width: 2, dash: "dash" as const };
+          ameyanagiRTraces.push({ x: energyArr, y: bPercent, name: boothName, line: boothLine });
+          summary.push({
+            algorithm: boothName,
+            edgeEnergy: b.edge_energy,
+            fluorEnergy: b.fluorescence_energy,
+            rMin: b.r_min,
+            rMax: b.r_max,
+            rMean: b.r_mean,
+            interpretation: classifySuppression(b.r_mean),
+            isThick: b.is_thick,
+            thicknessCm: resolvedThicknessCm,
+            chiAssumed: chi,
+          });
+        }
       }
 
       return readyState({ ameyanagiRTraces, summary });
@@ -507,6 +515,7 @@ function SelfAbsorptionPage() {
     thicknessCm,
     pelletMassG,
     pelletDiameterCm,
+    plotTraceMode,
   ]);
 
   if (!ready) return <LoadingState />;
@@ -555,7 +564,7 @@ function SelfAbsorptionPage() {
             <div className="text-sm font-semibold">Ameyanagi (exact)</div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="mb-1 block text-sm font-medium">Density</label>
+                <label className="mb-1 block text-sm font-medium">Density ρ</label>
                 <div className="flex items-center gap-1">
                   <input
                     type="number"
@@ -579,6 +588,19 @@ function SelfAbsorptionPage() {
                   <option value="sweep">Sweep χ</option>
                 </select>
               </div>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium">Plot traces</label>
+              <select
+                value={plotTraceMode}
+                onChange={(e) => setPlotTraceMode(e.target.value as PlotTraceMode)}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="ameyanagi">Ameyanagi only</option>
+                <option value="booth">Booth ref only</option>
+                <option value="both">Ameyanagi + Booth</option>
+              </select>
             </div>
 
             {ameyanagiChiMode === "single" ? (
@@ -774,7 +796,7 @@ function SelfAbsorptionPage() {
               traces={calcState.data?.ameyanagiRTraces ?? []}
               xTitle="Energy (eV)"
               yTitle="R(E, χ) retained (%)"
-              title={`Ameyanagi and Booth reference vs Energy (percent)${ameyanagiSweepActive ? " (multi-χ)" : ""}`}
+              title={`${plotTraceMode === "ameyanagi" ? "Ameyanagi" : plotTraceMode === "booth" ? "Booth reference" : "Ameyanagi + Booth reference"} vs Energy (percent)${ameyanagiSweepActive ? " (multi-χ)" : ""}`}
               height={380}
               showLogToggle={false}
               yRange={[0, 100]}
