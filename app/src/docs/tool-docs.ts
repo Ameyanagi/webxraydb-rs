@@ -712,24 +712,84 @@ const TOOL_DOCS: Record<ToolDocId, ToolDoc> = {
     id: "/sample-preparation-helper",
     title: "Sample Preparation Helper",
     theorySummary: [
-      "This helper combines transmission planning and fluorescence self-absorption planning using the same attenuation and exact Ameyanagi suppression engine as the dedicated tools.",
-      "It evaluates five scenarios under fixed pellet geometry: pure sample, user-specified target dilution, suggested optimal dilution, fluorescence-optimized dilution, and fluorescence-optimized thickness.",
+      "This helper combines transmission planning (sample weight) and fluorescence self-absorption planning into a single workflow, using the same attenuation engine and exact Ameyanagi suppression calculation as the dedicated tools.",
+      "For transmission mode, sample and diluent masses are solved from a 2x2 linear system of mass balance and target edge-step equations, identical to the Sample Weight calculator. Edge-step coefficients are computed from finite differences in mass attenuation +/- 10 eV around the selected absorption edge.",
+      "For fluorescence mode, the exact Ameyanagi suppression ratio R(E,chi) is evaluated point-by-point on the energy grid. The computation retains full exponential expressions without thin/thick asymptotic approximations. The Booth algorithm classifies samples as thick (effective path >= 90 um) or thin and applies the appropriate formula for reference comparison.",
+      "The helper evaluates five scenarios under fixed pellet geometry: pure sample, user-specified target dilution, suggested optimal dilution, fluorescence-optimized dilution, and fluorescence-optimized thickness.",
     ],
     algorithmSteps: [
-      "Build mass attenuation coefficients for sample and diluent around the selected absorption edge and across the energy range.",
-      "Solve candidate mass splits for each scenario using the closed-form edge-step mixing equations.",
-      "Run exact Ameyanagi R(E, chi) calculation for each physically valid case to evaluate fluorescence self-absorption.",
-      "Classify each case against transmission and fluorescence thresholds; rank and display best feasible options.",
+      "Build mass attenuation coefficients for sample and diluent around the selected absorption edge (+/- 10 eV) and across the energy range.",
+      "Solve candidate mass splits for each scenario using the closed-form equation: m_s = (Delta-mu_target * A - Delta-mu_d * m_tot) / (Delta-mu_s - Delta-mu_d).",
+      "Compute transmission metrics (mu*t above and below edge) and verify edge step and absorption thresholds.",
+      "Construct geometric factors g = sin(phi)/sin(theta) and path beta = d/sin(phi) from incidence/exit angles and pellet thickness.",
+      "Compute mu terms: total compound attenuation, absorber-only contribution, and effective fluorescence attenuation (intensity-weighted over emission lines).",
+      "Evaluate exact Ameyanagi suppression ratio R(E,chi) for each physically valid case to determine fluorescence self-absorption severity.",
+      "Classify each case against transmission (0.2 <= edge step <= 2.0, mu*t <= 4.0) and fluorescence (R_min >= 90%) thresholds; rank and display best feasible options.",
     ],
     equations: [
       {
-        label: "Edge-step mixing model",
+        label: "Edge-step mixing model (sample weight)",
         latex: String.raw`\Delta\mu_{\mathrm{mix}}=\Delta\mu_s\frac{m_s}{A}+\Delta\mu_d\frac{m_d}{A},\quad m_s+m_d=m_{\mathrm{tot}}`,
         variables: [
           { symbol: "\\Delta\\mu_s", description: "sample edge-step per unit mass loading", units: "cm^2/g" },
           { symbol: "\\Delta\\mu_d", description: "diluent edge-step per unit mass loading", units: "cm^2/g" },
           { symbol: "m_s, m_d", description: "sample and diluent masses", units: "g" },
           { symbol: "A", description: "illuminated pellet area", units: "cm^2" },
+        ],
+      },
+      {
+        label: "Closed-form sample mass",
+        latex: String.raw`m_s = \frac{\Delta\mu_{\mathrm{target}}\,A - \Delta\mu_d\, m_{\mathrm{tot}}}{\Delta\mu_s-\Delta\mu_d}`,
+      },
+      {
+        label: "Transmission check",
+        latex: String.raw`T=\exp\!\left[-\left(\frac{\mu}{\rho}\right)\frac{m}{A}\right]`,
+        variables: [
+          { symbol: "T", description: "transmitted intensity fraction" },
+          { symbol: "m/A", description: "mass loading (areal density)", units: "g/cm^2" },
+        ],
+      },
+      {
+        label: "Pellet thickness from mass",
+        latex: String.raw`d = \frac{m_{\mathrm{tot}}}{\rho\,\pi\left(\frac{D}{2}\right)^2}`,
+        variables: [
+          { symbol: "D", description: "pellet diameter", units: "cm" },
+          { symbol: "\\rho", description: "effective pellet density", units: "g/cm^3" },
+        ],
+      },
+      {
+        label: "Geometry factors (self-absorption)",
+        latex: String.raw`g=\frac{\sin\phi}{\sin\theta},\qquad \beta=\frac{d}{\sin\phi}`,
+        variables: [
+          { symbol: "\\phi", description: "incidence angle (beam to surface)", units: "rad" },
+          { symbol: "\\theta", description: "exit angle (detector to surface)", units: "rad" },
+          { symbol: "d", description: "sample thickness", units: "cm" },
+          { symbol: "g", description: "geometry ratio (path lengths)" },
+          { symbol: "\\beta", description: "effective path through sample", units: "cm" },
+        ],
+      },
+      {
+        label: "Attenuation terms",
+        latex: String.raw`\alpha(E)=\bar\mu_T(E)+g\,\mu_f,\qquad A(E,\chi)=\alpha(E)+\bar\mu_a(E)(1+\chi)`,
+        variables: [
+          { symbol: "\\bar\\mu_T", description: "total linear attenuation of compound (without absorber edge step)", units: "1/cm" },
+          { symbol: "\\mu_f", description: "effective fluorescence attenuation coefficient", units: "1/cm" },
+          { symbol: "\\bar\\mu_a", description: "absorber-only linear attenuation", units: "1/cm" },
+          { symbol: "\\chi", description: "assumed EXAFS oscillation amplitude" },
+        ],
+      },
+      {
+        label: "Exact suppression ratio (Ameyanagi)",
+        latex: String.raw`R(E,\chi)=\frac{1}{\chi}\left[\frac{\alpha\left(1-e^{-A\beta}\right)}{A\left(1-e^{-\alpha\beta}\right)}\cdot\frac{\alpha(1+\chi)}{\alpha+\bar\mu_a}-1\right]`,
+        variables: [
+          { symbol: "R", description: "suppression ratio; R=1 means no self-absorption, R<1 means signal loss" },
+        ],
+      },
+      {
+        label: "Booth thick-sample formula",
+        latex: String.raw`R_{\mathrm{thick}} = \frac{1-s}{1+s\chi},\qquad s = \frac{\bar\mu_a}{\alpha+\bar\mu_a}`,
+        variables: [
+          { symbol: "s", description: "self-absorption parameter (fraction of absorption from target edge)" },
         ],
       },
       {
@@ -748,20 +808,15 @@ const TOOL_DOCS: Record<ToolDocId, ToolDoc> = {
           { symbol: "R_{\\min}", description: "minimum retained fluorescence signal (90% = negligible self-absorption)" },
         ],
       },
-      {
-        label: "Pellet thickness from mass",
-        latex: String.raw`d = \frac{m_{\mathrm{tot}}}{\rho\,\pi\left(\frac{D}{2}\right)^2}`,
-        variables: [
-          { symbol: "D", description: "pellet diameter", units: "cm" },
-          { symbol: "\\rho", description: "effective pellet density", units: "g/cm^3" },
-        ],
-      },
     ],
     references: [REF_ELAM, REF_AMEYANAGI, REF_BOOTH, REF_TROGER, REF_BUNKER, REF_XRAYDB_EXAMPLES],
     notes: [
+      "Edge-step coefficients use +/- 10 eV finite differences around the selected absorption edge, matching the Sample Weight calculator.",
       "When a target edge step is infeasible under non-negative mass constraints, the helper reports the reachable range instead of forcing an invalid solution.",
+      "Booth thick/thin classification uses effective path length (thickness / sin(theta_incident)) with a 90 um threshold.",
       "For fluorescence-thickness mode, if the input sample-only case already satisfies R_min >= 90%, the input mass/thickness is kept.",
       "The edge-step threshold (0.2-2.0) follows standard XAS practice for transmission experiments (Bunker, 2010). The mu*t <= 4.0 threshold ensures adequate transmitted intensity.",
+      "UI angles are entered in degrees and converted to radians internally. Displayed retained signal is 100 * R(E, chi) in percent.",
     ],
   },
 };
