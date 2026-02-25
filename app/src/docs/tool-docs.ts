@@ -75,7 +75,7 @@ const REF_DYNAMICAL: ToolReference = {
 
 const REF_BRAGG: ToolReference = {
   citation:
-    "Bragg WL. The diffraction of short electromagnetic waves by a crystal. Proceedings of the Cambridge Philosophical Society 17 (1913) 43-57.",
+    "Bragg WH, Bragg WL. The diffraction of short electromagnetic waves by a crystal. Proceedings of the Cambridge Philosophical Society 17 (1913) 43-57.",
   doi: "10.1017/S0305004100003678",
 };
 
@@ -87,7 +87,7 @@ const REF_COMPTON: ToolReference = {
 
 const REF_KNOLL: ToolReference = {
   citation: "Knoll GF. Radiation Detection and Measurement, 4th Edition. Wiley (2010).",
-  doi: "10.1002/9780470131480",
+  doi: "10.1002/9781119188988",
 };
 
 const REF_TROGER: ToolReference = {

@@ -24,13 +24,10 @@ export {
   material_mu_named,
   mu_elam,
   xray_delta_beta,
-  find_material,
   list_materials,
   // Scattering
-  f0,
   f1_chantler,
   f2_chantler,
-  mu_chantler,
   // Ion chamber
   ionchamber_fluxes,
   ionization_potential,
@@ -42,10 +39,6 @@ export {
   parse_formula,
   validate_formula,
   // Self-absorption
-  sa_fluo,
-  sa_troger,
-  sa_booth,
   sa_booth_reference,
   sa_ameyanagi,
-  sa_atoms,
 } from "~/wasm-pkg/webxraydb_wasm";
