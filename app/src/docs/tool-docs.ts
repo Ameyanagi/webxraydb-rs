@@ -1,22 +1,22 @@
 import type { ToolDoc, ToolDocId, ToolReference } from "~/docs/types";
 
 const REF_XRAYDB_DOCS: ToolReference = {
-  citation: "XrayDB documentation and API reference.",
+  citation: "XrayDB — a separate Python library for X-ray reference data (M. Newville et al.). Documentation and API reference.",
   url: "https://xraypy.github.io/XrayDB/",
 };
 
 const REF_XRAYDB_PYTHON: ToolReference = {
-  citation: "XrayDB Python API documentation (material_mu, xray_delta_beta, darwin_width, mirror_reflectivity).",
+  citation: "XrayDB Python API (separate project) — material_mu, xray_delta_beta, darwin_width, mirror_reflectivity.",
   url: "https://xraypy.github.io/XrayDB/python.html",
 };
 
 const REF_XRAYDB_EXAMPLES: ToolReference = {
-  citation: "XrayDB calculations of X-ray properties of materials (worked theory examples).",
+  citation: "XrayDB (separate Python project) — worked examples of X-ray property calculations.",
   url: "https://xraypy.github.io/XrayDB/examples.html",
 };
 
 const REF_XRAYDB_BIBLIO: ToolReference = {
-  citation: "XrayDB bibliography and data-source references.",
+  citation: "XrayDB (separate Python project) — bibliography and data-source references.",
   url: "https://xraypy.github.io/XrayDB/biblio.html",
 };
 
@@ -131,7 +131,7 @@ const TOOL_DOCS: Record<ToolDocId, ToolDoc> = {
     title: "Elements Overview",
     theorySummary: [
       "This page provides the root index into tabulated X-ray atomic data: element properties, absorption edges, emission lines, and links into tool-specific calculations.",
-      "Data comes from the XrayDB Elam database. No fitting or inversion is done on this page; it serves as a validated reference and navigation layer.",
+      "Data comes from the Elam database, the same primary data source used by the XrayDB Python project (a separate project by M. Newville et al.). No fitting or inversion is done on this page; it serves as a validated reference and navigation layer.",
     ],
     algorithmSteps: [
       "Resolve atomic symbol/number and retrieve elemental metadata (molar mass, density).",
@@ -192,7 +192,7 @@ const TOOL_DOCS: Record<ToolDocId, ToolDoc> = {
     ],
     references: [REF_ELAM, REF_CHANTLER, REF_WAASMAIER, REF_KRAUSE_OLIVER, REF_KESKI_RAHKONEN],
     notes: [
-      "Core-hole width and fluorescence-related metadata follow tabulated atomic references used in XrayDB.",
+      "Core-hole width and fluorescence-related metadata follow the same tabulated atomic references used by the XrayDB Python project (a separate project).",
     ],
   },
 
@@ -260,7 +260,7 @@ const TOOL_DOCS: Record<ToolDocId, ToolDoc> = {
     id: "/attenuation",
     title: "X-ray Attenuation",
     theorySummary: [
-      "This calculator follows the XrayDB material attenuation workflow: evaluate mass attenuation by composition, then scale by density to linear attenuation.",
+      "This calculator follows the same material attenuation workflow described in the XrayDB Python project (a separate project): evaluate mass attenuation by composition, then scale by density to linear attenuation.",
       "The total cross-section is decomposed into photoelectric, coherent (Rayleigh), and incoherent (Compton) channels. Elemental mass attenuation coefficients come from the Elam database.",
     ],
     algorithmSteps: [
@@ -365,7 +365,7 @@ const TOOL_DOCS: Record<ToolDocId, ToolDoc> = {
     id: "/scattering",
     title: "Scattering Factors",
     theorySummary: [
-      "Scattering factors use Chantler tables for f'(E) and f''(E) across energy, consistent with XrayDB scattering APIs.",
+      "Scattering factors use Chantler tables for f'(E) and f''(E) across energy, consistent with the approach used by the XrayDB Python project (a separate project).",
       "The decomposition into f_0(q), f'(E), and if''(E) is the standard X-ray elastic scattering representation. f_0 uses Waasmaier-Kirfel analytical functions; f' and f'' are interpolated from Chantler tabulations.",
     ],
     algorithmSteps: [
@@ -404,7 +404,7 @@ const TOOL_DOCS: Record<ToolDocId, ToolDoc> = {
     id: "/ionchamber",
     title: "Ion Chamber",
     theorySummary: [
-      "This implementation follows the XrayDB ion-chamber example: gas attenuation from composition and pressure-scaled path length, then absorbed flux conversion.",
+      "This implementation follows the ion-chamber methodology described in the XrayDB Python project (a separate project): gas attenuation from composition and pressure-scaled path length, then absorbed flux conversion.",
       "The sensitivity parameter (A/V) converts the measured voltage from the current amplifier into ionization current. Incident flux is recovered from absorbed flux using the gas attenuation model. Compton energies are provided as diagnostic scattering references.",
     ],
     algorithmSteps: [
@@ -470,7 +470,7 @@ const TOOL_DOCS: Record<ToolDocId, ToolDoc> = {
     id: "/reflectivity",
     title: "Mirror Reflectivity",
     theorySummary: [
-      "Reflectivity follows the XrayDB reflectivity approach: refractive-index parameters from composition and density, then Fresnel/Parratt-style reflectivity for grazing incidence.",
+      "Reflectivity follows the same approach described in the XrayDB Python project (a separate project): refractive-index parameters from composition and density, then Fresnel/Parratt-style reflectivity for grazing incidence.",
       "Critical angle and roughness effects are included for practical mirror material comparison. Two plot modes are available: reflectivity vs grazing angle at fixed energy, and reflectivity vs energy at fixed angle.",
     ],
     algorithmSteps: [
@@ -521,7 +521,7 @@ const TOOL_DOCS: Record<ToolDocId, ToolDoc> = {
     id: "/darwin",
     title: "Darwin Width",
     theorySummary: [
-      "Darwin width calculations follow the dynamical diffraction treatment and are consistent with the XrayDB darwin_width API.",
+      "Darwin width calculations follow the dynamical diffraction treatment and are consistent with the darwin_width API of the XrayDB Python project (a separate project).",
       "The page computes both single-bounce reflectivity curves and double-bounce rocking curves, converting angular acceptance into equivalent energy resolution around the Bragg condition.",
     ],
     algorithmSteps: [
