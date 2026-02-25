@@ -110,7 +110,7 @@ const REF_REHR: ToolReference = {
 
 const REF_AMEYANAGI: ToolReference = {
   citation:
-    "Ameyanagi. Exact analytical solution of the Booth self-absorption equation for arbitrary sample thickness and geometry (original code in this project).",
+    "Ameyanagi. Exact numerical solution of the Booth self-absorption equation for arbitrary sample thickness and geometry (original code in this project).",
   url: "https://github.com/Ameyanagi/webxraydb-rs",
 };
 
