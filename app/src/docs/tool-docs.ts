@@ -110,7 +110,8 @@ const REF_REHR: ToolReference = {
 
 const REF_AMEYANAGI: ToolReference = {
   citation:
-    "Ameyanagi H, Booth CH. Exact self-absorption correction for fluorescence EXAFS: a unified treatment for arbitrary sample thickness and geometry.",
+    "Ameyanagi. Exact analytical solution of the Booth self-absorption equation for arbitrary sample thickness and geometry (original code in this project).",
+  url: "https://github.com/Ameyanagi/webxraydb-rs",
 };
 
 const REF_NEVOT_CROCE: ToolReference = {
