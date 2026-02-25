@@ -443,7 +443,7 @@ function RootDocument({ children }: { children: ReactNode }) {
               </div>
             )}
 
-            <main className="flex-1 p-4 pt-14 md:p-6 md:pt-6 max-w-7xl">
+            <main className="flex-1 p-4 pt-[4.5rem] md:p-6 md:pt-6 max-w-7xl">
               {children}
             </main>
           </div>
