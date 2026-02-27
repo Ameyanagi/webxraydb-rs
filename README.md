@@ -2,7 +2,7 @@
 
 X-ray reference database and calculation tools built with Rust/WebAssembly and React.
 
-This is an independent Rust/WASM implementation. It shares the same underlying atomic data sources (Elam, Chantler, Waasmaier-Kirfel) as the [XrayDB Python project](https://xraypy.github.io/XrayDB/) but is a separate codebase.
+This project is heavily inspired by the [XrayDB Python library](https://xraypy.github.io/XrayDB/) (M. Newville et al.) and shares the same underlying atomic data sources (Elam, Chantler, Waasmaier-Kirfel). It is an independent Rust/WASM reimplementation — a separate codebase, not a fork or port of XrayDB.
 
 ## Features
 
