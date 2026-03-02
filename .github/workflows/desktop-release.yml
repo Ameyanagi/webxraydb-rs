@@ -1,15 +1,58 @@
-name: Desktop Release
+name: Release
 
 on:
   push:
     tags:
       - "desktop-v*.*.*"
+  workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: true
+
 jobs:
-  build:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@wasm-pack
+
+      - name: Build WASM
+        run: wasm-pack build crates/webxraydb-wasm --target web --out-dir ../../app/src/wasm-pkg
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        working-directory: app
+        run: bun install --frozen-lockfile
+
+      - name: Build app (standalone)
+        working-directory: app
+        run: bun run build
+
+      - name: Create release archives
+        run: |
+          cd app/dist/client
+          tar -czf ../../../webxraydb-rs.tar.gz .
+          zip -r ../../../webxraydb-rs.zip .
+
+      - name: Upload web archives
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-archives
+          path: |
+            webxraydb-rs.tar.gz
+            webxraydb-rs.zip
+
+  desktop:
     strategy:
       fail-fast: false
       matrix:
@@ -78,7 +121,6 @@ jobs:
           mkdir -p "$out_dir"
 
           if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
-            # Collect signed/notarized .app as portable archive.
             while IFS= read -r -d '' app_dir; do
               app_name="$(basename "$app_dir")"
               app_base="${app_name%.app}"
@@ -93,7 +135,6 @@ jobs:
               exit 1
             fi
 
-            # Collect signed/notarized .dmg produced by Tauri.
             find "$bundle_dir" -type f -name '*.dmg' -exec cp {} "$out_dir"/ \;
             if ! ls "$out_dir"/*.dmg >/dev/null 2>&1; then
               echo "No macOS .dmg found in $bundle_dir"
@@ -117,14 +158,12 @@ jobs:
           $releaseDir = "desktop-tauri/src-tauri/target/release"
           New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
-          # Installer bundles from Tauri.
           foreach ($pattern in @("*.exe", "*.msi")) {
             Get-ChildItem -Path $bundleDir -File -Recurse -Filter $pattern | ForEach-Object {
               Copy-Item -Path $_.FullName -Destination $outDir -Force
             }
           }
 
-          # Portable standalone app binary (no setup wizard).
           $portableExe = @(Get-ChildItem -Path $releaseDir -File -Filter "*.exe")
           if (-not $portableExe) {
             throw "No portable Windows executable found in $releaseDir"
@@ -147,23 +186,31 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: build
+    needs: [web, desktop]
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/download-artifact@v4
         with:
-          path: desktop-release-artifacts
+          path: release-artifacts
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: WebXrayDB Desktop ${{ github.ref_name }}
+          name: WebXrayDB ${{ github.ref_name }}
           make_latest: true
           body: |
-            Independent desktop release of WebXrayDB.
+            ## Desktop installers
+            macOS, Windows, and Linux desktop builds are included.
 
-            Included installers are built for macOS, Windows, and Linux.
+            ## Web (standalone)
+            Extract and serve with any local HTTP server:
+            ```
+            unzip webxraydb-rs.zip -d webxraydb-rs
+            cd webxraydb-rs
+            python3 -m http.server 8000
+            ```
+            Then open http://localhost:8000 in your browser.
           files: |
-            desktop-release-artifacts/**/*
+            release-artifacts/**/*

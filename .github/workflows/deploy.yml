@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
 
@@ -23,48 +23,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Rust toolchain + caching
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@wasm-pack
 
-      # Build WASM
       - name: Build WASM
         run: wasm-pack build crates/webxraydb-wasm --target web --out-dir ../../app/src/wasm-pkg
 
-      # Bun + build app
       - uses: oven-sh/setup-bun@v2
 
       - name: Install dependencies
         working-directory: app
         run: bun install --frozen-lockfile
 
-      # Build for local use (served via local HTTP server)
-      - name: Build app (standalone)
-        working-directory: app
-        run: bun run build
-
-      # Package release archives
-      - name: Create release archives
-        run: |
-          cd app/dist/client
-          tar -czf ../../../webxraydb-rs.tar.gz .
-          zip -r ../../../webxraydb-rs.zip .
-
-      # Rebuild for GitHub Pages (base path = /repo-name/)
       - name: Build app (GitHub Pages)
         working-directory: app
         env:
           BASE_PATH: /${{ github.event.repository.name }}/
         run: bun run build
 
-      # Copy index.html as 404.html for SPA routing
       - name: Create 404.html for SPA routing
         run: cp app/dist/client/index.html app/dist/client/404.html
 
-      # Deploy to GitHub Pages
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
@@ -76,26 +58,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
-      # Create/update rolling release
-      - name: Update latest release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: latest
-          name: Latest Build
-          body: |
-            Standalone static build of webxraydb-rs.
-
-            Extract and serve with any local HTTP server:
-            ```
-            unzip webxraydb-rs.zip -d webxraydb-rs
-            cd webxraydb-rs
-            python3 -m http.server 8000
-            ```
-            Then open http://localhost:8000 in your browser.
-
-            (A local server is required because the app uses ES modules and WebAssembly.)
-          files: |
-            webxraydb-rs.tar.gz
-            webxraydb-rs.zip
-          make_latest: true
