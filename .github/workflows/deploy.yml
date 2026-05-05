@@ -38,10 +38,10 @@ jobs:
         working-directory: app
         run: bun install --frozen-lockfile
 
-      - name: Build app (GitHub Pages)
+      - name: Build app (GitHub Pages custom domain)
         working-directory: app
         env:
-          BASE_PATH: /${{ github.event.repository.name }}/
+          BASE_PATH: /
         run: bun run build
 
       - name: Create 404.html for SPA routing
