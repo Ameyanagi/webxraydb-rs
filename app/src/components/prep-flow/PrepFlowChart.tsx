@@ -198,6 +198,7 @@ interface MethodRow {
 export function PrepFlowChart(props: PrepFlowChartProps) {
   const [selected, setSelected] = useState<NodeId | null>(null);
   const [preference, setPreference] = useState<ModePreference>("any");
+  const [expandedAbsent, setExpandedAbsent] = useState<string | null>(null);
   const {
     sampleFormula,
     atom,
@@ -215,7 +216,7 @@ export function PrepFlowChart(props: PrepFlowChartProps) {
   const pure = byId("pure");
   const dilutedTransmission = byId("target") ?? byId("suggested");
   const fluoDilution = byId("fluo-dilution");
-  const fluoThickness = byId("fluo-thickness") ?? byId("fluo-input-thickness");
+  const fluoThickness = byId("fluo-thickness");
 
   // Feasibility is judged at the best achievable recipe, not the raw inputs:
   // a pure pellet at Δμt = 39 still means "transmission is fine — dilute".
@@ -279,7 +280,10 @@ export function PrepFlowChart(props: PrepFlowChartProps) {
       (preference === "transmission" && row.mode === "Transmission") ||
       (preference === "fluorescence" && row.mode === "Fluorescence");
     const ownScore = own === "ok" ? 3 : own === "warn" ? 2 : 0;
-    return (preferred ? 10 : 0) + ownScore + (t !== "bad" && f !== "bad" ? 1 : 0);
+    // A preferred-mode recipe that fails outright must not outrank a recipe
+    // that actually works in the other mode.
+    const preferenceBonus = preferred ? (own === "bad" ? 2 : 10) : 0;
+    return preferenceBonus + ownScore + (t !== "bad" && f !== "bad" ? 1 : 0);
   };
   const sortedRows = [...methodRows].sort((a, b) => rowScore(b) - rowScore(a));
 
@@ -486,43 +490,57 @@ export function PrepFlowChart(props: PrepFlowChartProps) {
               </div>
               {sortedRows.map((row) => {
                 const kase = row.kase;
+                const rowKey = `${row.mode}-${row.label}`;
                 const isSelected = kase !== null && kase.id === selectedCaseId;
                 const thinWarn = kase !== null && thicknessUm(kase.thicknessCm) < THIN_PELLET_UM;
                 return (
-                  <button
-                    key={`${row.mode}-${row.label}`}
-                    type="button"
-                    onClick={() => kase && onSelectCase(kase.id)}
-                    className={`flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-md border px-2.5 py-1.5 text-left ${
-                      kase
-                        ? isSelected
-                          ? "border-primary/70 bg-primary/5 ring-1 ring-primary/50"
-                          : "border-border/60 hover:bg-accent/40"
-                        : "cursor-help border-border/40 opacity-60"
-                    }`}
-                    title={kase ? "Select this recipe (updates the plots below)" : row.absentReason}
-                  >
-                    <span>
-                      <span className="font-medium">{row.mode}</span>
-                      <span className="text-muted-foreground"> — {row.label}</span>
-                      {kase && (
-                        <span className="ml-2 text-muted-foreground">
-                          {thicknessUm(kase.thicknessCm).toFixed(0)} μm
-                          {thinWarn && <span className="ml-1 text-amber-500">△ thin</span>}
-                        </span>
-                      )}
-                    </span>
-                    <span className="flex gap-1">
-                      {kase ? (
-                        <>
-                          <Chip verdict={transmissionVerdict(kase)}>T</Chip>
-                          <Chip verdict={fluorescenceVerdict(kase)}>F</Chip>
-                        </>
-                      ) : (
-                        <Chip verdict="muted">n/a</Chip>
-                      )}
-                    </span>
-                  </button>
+                  <div key={rowKey}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        kase
+                          ? onSelectCase(kase.id)
+                          : setExpandedAbsent((cur) => (cur === rowKey ? null : rowKey))
+                      }
+                      className={`flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-md border px-2.5 py-1.5 text-left ${
+                        kase
+                          ? isSelected
+                            ? "border-primary/70 bg-primary/5 ring-1 ring-primary/50"
+                            : "border-border/60 hover:bg-accent/40"
+                          : "border-border/40 opacity-60 hover:opacity-90"
+                      }`}
+                      title={kase ? "Select this recipe (updates the plots below)" : undefined}
+                    >
+                      <span>
+                        <span className="font-medium">{row.mode}</span>
+                        <span className="text-muted-foreground"> — {row.label}</span>
+                        {kase && (
+                          <span className="ml-2 text-muted-foreground">
+                            {thicknessUm(kase.thicknessCm).toFixed(0)} μm
+                            {thinWarn && <span className="ml-1 text-amber-500">△ thin</span>}
+                          </span>
+                        )}
+                      </span>
+                      <span className="flex gap-1">
+                        {kase ? (
+                          <>
+                            <Chip verdict={transmissionVerdict(kase)}>T</Chip>
+                            <Chip verdict={fluorescenceVerdict(kase)}>F</Chip>
+                          </>
+                        ) : (
+                          <Chip verdict="muted">why?</Chip>
+                        )}
+                      </span>
+                    </button>
+                    {!kase && expandedAbsent === rowKey && (
+                      <p className="mt-1 rounded-md border border-border/40 bg-secondary/30 px-2.5 py-1.5 text-muted-foreground">
+                        {row.absentReason}
+                        {row.kase === null && row.caseId === null && (
+                          <span> The solvers rerun automatically as you change the inputs.</span>
+                        )}
+                      </p>
+                    )}
+                  </div>
                 );
               })}
               <p className="text-muted-foreground">
