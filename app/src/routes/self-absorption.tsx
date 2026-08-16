@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { useWasm } from "~/hooks/useWasm";
+import { findDatabaseDensity } from "~/lib/density";
 import {
   sa_ameyanagi,
   sa_booth_reference,
@@ -249,6 +250,12 @@ function SelfAbsorptionPage() {
   const [eEnd, setEEnd] = useState(8000);
   const [eStep, setEStep] = useState(2);
   const [densityGcm3, setDensityGcm3] = useState(5.24);
+
+  /** Density suggestion from the xraydb materials database (by stoichiometry). */
+  const densitySuggestion = useMemo(
+    () => (ready ? findDatabaseDensity(formula) : null),
+    [ready, formula],
+  );
   const [phiDeg, setPhiDeg] = useState(45);
   const [thetaDeg, setThetaDeg] = useState(45);
   const [chiAssumed, setChiAssumed] = useState(0.1);
@@ -576,6 +583,16 @@ function SelfAbsorptionPage() {
                   />
                   <span className="text-xs text-muted-foreground">g/cm³</span>
                 </div>
+                {densitySuggestion &&
+                  Math.abs(densitySuggestion.density - densityGcm3) > 0.005 && (
+                    <button
+                      type="button"
+                      onClick={() => setDensityGcm3(densitySuggestion.density)}
+                      className="mt-1 text-xs text-primary hover:underline"
+                    >
+                      Use {densitySuggestion.density} g/cm³ ({densitySuggestion.name})
+                    </button>
+                  )}
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium">χ mode</label>

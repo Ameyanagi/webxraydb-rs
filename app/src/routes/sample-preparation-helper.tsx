@@ -21,8 +21,8 @@ import {
 } from "~/lib/sample-preparation-helper";
 import { errorState, readyState, type CalculationState } from "~/lib/ui-state";
 import { PrepFlowChart } from "~/components/prep-flow/PrepFlowChart";
+import { findDatabaseDensity } from "~/lib/density";
 import {
-  list_materials,
   mu_elam,
   molar_mass,
   parse_formula,
@@ -799,40 +799,11 @@ function SamplePreparationHelperPage() {
   }, [calcState.data, selectedCaseId]);
 
 
-  /**
-   * A density suggestion from the xraydb materials database, matched on
-   * normalized stoichiometry so "Fe2O3" finds hematite however it is spelled.
-   */
-  const densitySuggestion = useMemo(() => {
-    if (!ready || !sampleFormula.trim()) return null;
-    const key = (formula: string): string | null => {
-      try {
-        const parsed = parse_formula(formula);
-        const components = parsed.components as { symbol: string; count: number }[];
-        if (components.length === 0) return null;
-        const stoich = new Map<string, number>();
-        for (const c of components) {
-          stoich.set(c.symbol, (stoich.get(c.symbol) ?? 0) + c.count);
-        }
-        const smallest = Math.min(...stoich.values());
-        if (!(smallest > 0)) return null;
-        return [...stoich.entries()]
-          .sort(([a], [b]) => a.localeCompare(b))
-          .map(([sym, n]) => `${sym}:${(n / smallest).toFixed(4)}`)
-          .join("|");
-      } catch {
-        return null;
-      }
-    };
-    const target = key(sampleFormula);
-    if (!target) return null;
-    try {
-      const materials = list_materials() as { name: string; formula: string; density: number }[];
-      return materials.find((m) => key(m.formula) === target) ?? null;
-    } catch {
-      return null;
-    }
-  }, [ready, sampleFormula]);
+  /** Density suggestion from the xraydb materials database (by stoichiometry). */
+  const densitySuggestion = useMemo(
+    () => (ready ? findDatabaseDensity(sampleFormula) : null),
+    [ready, sampleFormula],
+  );
 
   const transmissionTraces = useMemo<PlotTrace[]>(() => {
     const data = calcState.data;
