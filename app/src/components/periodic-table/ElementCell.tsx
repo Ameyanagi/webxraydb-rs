@@ -17,6 +17,7 @@ export function ElementCell({ element, selected, onClick }: ElementCellProps) {
   return (
     <button
       type="button"
+      aria-pressed={selected}
       onClick={() => onClick(element.z)}
       className={`flex h-full w-full flex-col items-center justify-center rounded border p-0.5 text-center transition-colors ${colorClass} ${
         selected

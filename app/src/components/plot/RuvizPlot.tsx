@@ -4,6 +4,7 @@ import {
   downloadFigure,
   renderFigure,
   type FigureExportSpec,
+  type FigurePreset,
 } from "~/lib/figure-export";
 
 type Session = import("ruviz").CanvasSession | import("ruviz").WorkerSession;
@@ -95,6 +96,10 @@ export function RuvizPlot({ spec, height, darkMode }: RuvizPlotProps) {
     if (!ready || !session) return;
     let cancelled = false;
 
+    // An empty spec (inputs cleared, wasm data not ready yet) must not reach
+    // the renderer — a plot without series is an error, not a blank frame.
+    if (spec.traces.length === 0) return;
+
     (async () => {
       try {
         const { createPlot } = await import("ruviz");
@@ -115,6 +120,7 @@ export function RuvizPlot({ spec, height, darkMode }: RuvizPlotProps) {
   // is the session's box zoom and must not. Track the press ourselves — the
   // SDK swallows the native `contextmenu` event to keep box zoom usable.
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [preset, setPreset] = useState<FigurePreset>("single");
   const rightPress = useRef<{ x: number; y: number } | null>(null);
 
   const onPointerDown = (e: React.PointerEvent) => {
@@ -161,7 +167,7 @@ export function RuvizPlot({ spec, height, darkMode }: RuvizPlotProps) {
   const downloadPublication = async (format: "svg" | "png") => {
     setMenu(null);
     try {
-      const blob = await renderFigure(spec, "single", format);
+      const blob = await renderFigure(spec, preset, format);
       downloadFigure(blob, spec.name ?? "figure", format);
     } catch (e) {
       console.warn("publication export failed:", e);
@@ -207,9 +213,9 @@ export function RuvizPlot({ spec, height, darkMode }: RuvizPlotProps) {
       onPointerDown={onPointerDown}
       onPointerUp={onPointerUp}
     >
-      {!ready && (
+      {(!ready || spec.traces.length === 0) && (
         <div className="absolute inset-0 flex items-center justify-center text-muted-foreground">
-          Loading plot...
+          {spec.traces.length === 0 && ready ? "No data to plot yet" : "Loading plot..."}
         </div>
       )}
       {/* Remount the canvas per attempt: a canvas whose control was
@@ -244,8 +250,26 @@ export function RuvizPlot({ spec, height, darkMode }: RuvizPlotProps) {
             Download view as PNG
           </button>
           <div className="my-1 border-t border-border/60" />
+          <div className="flex items-center gap-1 px-2.5 py-1 text-[10px] text-muted-foreground">
+            <span>Column:</span>
+            {(["single", "double"] as const).map((p) => (
+              <button
+                key={p}
+                type="button"
+                aria-pressed={preset === p}
+                onClick={() => setPreset(p)}
+                className={`rounded px-1.5 py-0.5 font-medium ${
+                  preset === p
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                }`}
+              >
+                {p === "single" ? "3.25 in" : "6.5 in"}
+              </button>
+            ))}
+          </div>
           <button type="button" className={menuItem} onClick={() => downloadPublication("svg")}>
-            Publication SVG (3.25 in)
+            Publication SVG
           </button>
           <button type="button" className={menuItem} onClick={() => downloadPublication("png")}>
             Publication PNG (300 dpi)
