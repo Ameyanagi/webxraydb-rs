@@ -29,7 +29,7 @@ This project is heavily inspired by the [XrayDB Python library](https://xraypy.g
 
 ## Tech Stack
 
-- **Frontend**: React 19, TanStack Router, Tailwind CSS 4, Vite 7, Plotly, KaTeX
+- **Frontend**: React 19, TanStack Router, Tailwind CSS 4, Vite 7, [ruviz](https://github.com/Ameyanagi/ruviz) (wasm plotting), KaTeX
 - **Backend**: Rust compiled to WebAssembly (wasm-bindgen, wasm-pack)
 - **Desktop**: Tauri 2
 - **Package manager**: bun

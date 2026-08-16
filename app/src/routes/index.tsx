@@ -121,6 +121,22 @@ function ToolDirectory() {
   return (
     <section className="mt-8">
       <h2 className="mb-3 text-base font-semibold">All tools</h2>
+
+      {/* Recommended entry point: the tool that ties the others together. */}
+      <Link
+        to="/sample-preparation-helper"
+        className="group mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-primary/50 bg-primary/5 p-3 hover:bg-primary/10"
+      >
+        <span className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary-foreground">
+          Recommended
+        </span>
+        <span className="text-sm font-semibold text-foreground">Sample Preparation Helper</span>
+        <span className="text-xs text-muted-foreground">
+          Start here to plan a measurement: the method-selection flowchart weighs transmission
+          against fluorescence and hands you a pellet recipe.
+        </span>
+      </Link>
+
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         {TOOL_DIRECTORY.map((group) => (
           <div key={group.section} className="rounded-lg border border-border bg-card p-3">
