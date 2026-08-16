@@ -122,13 +122,51 @@ export function RuvizPlot({ spec, height, darkMode }: RuvizPlotProps) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [preset, setPreset] = useState<FigurePreset>("single");
   const rightPress = useRef<{ x: number; y: number } | null>(null);
+  const leftPress = useRef<{ x: number; y: number } | null>(null);
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button === 2) rightPress.current = { x: e.clientX, y: e.clientY };
-    else setMenu(null);
+    else {
+      if (e.button === 0) leftPress.current = { x: e.clientX, y: e.clientY };
+      setMenu(null);
+    }
+  };
+
+  /** Client coords → backing-surface pixels, the space the session queries in. */
+  const canvasPoint = (e: React.PointerEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return null;
+    return {
+      x: ((e.clientX - rect.left) * canvas.width) / rect.width,
+      y: ((e.clientY - rect.top) * canvas.height) / rect.height,
+    };
+  };
+
+  /** A stationary left-click on a legend entry toggles that series. */
+  const handleLegendClick = async (e: React.PointerEvent) => {
+    const session = sessionRef.current;
+    const point = canvasPoint(e);
+    if (!session || !point) return;
+    try {
+      const entry = await session.legendEntryAt(point.x, point.y);
+      if (entry === null) return;
+      const visible = await session.seriesVisible(entry);
+      await session.setSeriesVisible(entry, !visible);
+    } catch {
+      // Hit testing is best-effort; a failed query must not break the plot.
+    }
   };
 
   const onPointerUp = (e: React.PointerEvent) => {
+    if (e.button === 0 && leftPress.current) {
+      const dx = e.clientX - leftPress.current.x;
+      const dy = e.clientY - leftPress.current.y;
+      leftPress.current = null;
+      if (Math.hypot(dx, dy) < CLICK_SLOP_PX) void handleLegendClick(e);
+      return;
+    }
     if (e.button !== 2 || !rightPress.current) return;
     const dx = e.clientX - rightPress.current.x;
     const dy = e.clientY - rightPress.current.y;

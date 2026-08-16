@@ -10,7 +10,7 @@
         "katex": "^0.16.33",
         "react": "^19",
         "react-dom": "^19",
-        "ruviz": "^0.10.0",
+        "ruviz": "0.11.0",
       },
       "devDependencies": {
         "@tailwindcss/vite": "^4",
@@ -742,7 +742,7 @@
 
     "rou3": ["rou3@0.7.12", "", {}, "sha512-iFE4hLDuloSWcD7mjdCDhx2bKcIsYbtOTpfH5MHHLSKMOUyjqQXTeZVa289uuwEGEKFoE/BAPbhaU4B774nceg=="],
 
-    "ruviz": ["ruviz@0.10.0", "", {}, "sha512-9u0kqhctYGl0vctXop0/V4uRzU6OkN0KXKdRtVXjvPXDX1XAkBx9QCfImezoAEYKL6hMNhtRQndh1NDt+imqVw=="],
+    "ruviz": ["ruviz@0.11.0", "", {}, "sha512-Mp0y9FdHgvsZv9eW6C8S/B8WCWrXY3DF5pY3ASm/tYPSYyhSSBsU2GeRCRSlsfQCB0HfGKOwnAX39o01uokS3A=="],
 
     "safer-buffer": ["safer-buffer@2.1.2", "", {}, "sha512-YZo3K82SD7Riyi0E1EQPojLz7kpepnSQI9IyPbHHg1XXXevb5dJI7tpyN2ADxGcQbHG7vcyRHk0cbwqcQriUtg=="],
 
