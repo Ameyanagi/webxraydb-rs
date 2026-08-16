@@ -32,8 +32,73 @@ import {
   xray_edges,
 } from "~/lib/wasm-api";
 
+/**
+ * Share parameters. The energy range is deliberately absent: it derives
+ * deterministically from atom+edge on load, so it would only bloat the URL.
+ */
+interface PrepHelperSearch {
+  formula?: string;
+  atom?: string;
+  edge?: string;
+  dil?: string;
+  rho?: number;
+  dilrho?: number;
+  mass?: number;
+  dia?: number;
+  angle?: number;
+  adv?: boolean;
+  phi?: number;
+  theta?: number;
+  target?: number;
+  chi?: number;
+  case?: string;
+}
+
+const PREP_DEFAULTS = {
+  formula: "Fe2O3",
+  atom: "Fe",
+  edge: "K",
+  dil: "BN",
+  rho: 5.24,
+  dilrho: 2.1,
+  mass: 150,
+  dia: 13,
+  angle: 45,
+  adv: false,
+  phi: 45,
+  theta: 45,
+  target: 1.0,
+  chi: 0.1,
+} as const;
+
+function prepNumber(value: unknown): number | undefined {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function prepString(value: unknown): string | undefined {
+  return typeof value === "string" && value ? value : undefined;
+}
+
 export const Route = createFileRoute("/sample-preparation-helper")({
   component: SamplePreparationHelperPage,
+  validateSearch: (search: Record<string, unknown>): PrepHelperSearch => ({
+    ...(prepString(search.formula) ? { formula: prepString(search.formula) } : {}),
+    ...(prepString(search.atom) ? { atom: prepString(search.atom) } : {}),
+    ...(prepString(search.edge) ? { edge: prepString(search.edge) } : {}),
+    ...(prepString(search.dil) ? { dil: prepString(search.dil) } : {}),
+    ...(prepNumber(search.rho) !== undefined ? { rho: prepNumber(search.rho) } : {}),
+    ...(prepNumber(search.dilrho) !== undefined ? { dilrho: prepNumber(search.dilrho) } : {}),
+    ...(prepNumber(search.mass) !== undefined ? { mass: prepNumber(search.mass) } : {}),
+    ...(prepNumber(search.dia) !== undefined ? { dia: prepNumber(search.dia) } : {}),
+    ...(prepNumber(search.angle) !== undefined ? { angle: prepNumber(search.angle) } : {}),
+    ...(search.adv === true || search.adv === "true" || search.adv === 1 ? { adv: true } : {}),
+    ...(prepNumber(search.phi) !== undefined ? { phi: prepNumber(search.phi) } : {}),
+    ...(prepNumber(search.theta) !== undefined ? { theta: prepNumber(search.theta) } : {}),
+    ...(prepNumber(search.target) !== undefined ? { target: prepNumber(search.target) } : {}),
+    ...(prepNumber(search.chi) !== undefined ? { chi: prepNumber(search.chi) } : {}),
+    ...(prepString(search.case) ? { case: prepString(search.case) } : {}),
+  }),
 });
 
 type CaseId =
@@ -180,24 +245,32 @@ function toDegreesLabel(phiDeg: number, thetaDeg: number): string {
 function SamplePreparationHelperPage() {
   const ready = useWasm();
 
-  const [sampleFormula, setSampleFormula] = useState("Fe2O3");
-  const [atom, setAtom] = useState("Fe");
-  const [edge, setEdge] = useState("K");
-  const [diluentFormula, setDiluentFormula] = useState("BN");
-  const [sampleDensityGcm3, setSampleDensityGcm3] = useState(5.24);
-  const [diluentDensityGcm3, setDiluentDensityGcm3] = useState(2.1);
-  const [totalMassMg, setTotalMassMg] = useState(150);
-  const [diameterMm, setDiameterMm] = useState(13);
-  const [beamAngleDeg, setBeamAngleDeg] = useState(45);
-  const [useAdvancedAngles, setUseAdvancedAngles] = useState(false);
-  const [phiDeg, setPhiDeg] = useState(45);
-  const [thetaDeg, setThetaDeg] = useState(45);
-  const [targetEdgeStep, setTargetEdgeStep] = useState(1.0);
-  const [chiAssumed, setChiAssumed] = useState(0.1);
+  // A share link initializes the form once on mount; the page itself never
+  // navigates (the Share button snapshots the state on demand instead of
+  // live-mirroring seventeen fields into the address bar).
+  const search = Route.useSearch();
+  const [sampleFormula, setSampleFormula] = useState(search.formula ?? PREP_DEFAULTS.formula);
+  const [atom, setAtom] = useState(search.atom ?? PREP_DEFAULTS.atom);
+  const [edge, setEdge] = useState(search.edge ?? PREP_DEFAULTS.edge);
+  const [diluentFormula, setDiluentFormula] = useState(search.dil ?? PREP_DEFAULTS.dil);
+  const [sampleDensityGcm3, setSampleDensityGcm3] = useState(search.rho ?? PREP_DEFAULTS.rho);
+  const [diluentDensityGcm3, setDiluentDensityGcm3] = useState(
+    search.dilrho ?? PREP_DEFAULTS.dilrho,
+  );
+  const [totalMassMg, setTotalMassMg] = useState(search.mass ?? PREP_DEFAULTS.mass);
+  const [diameterMm, setDiameterMm] = useState(search.dia ?? PREP_DEFAULTS.dia);
+  const [beamAngleDeg, setBeamAngleDeg] = useState(search.angle ?? PREP_DEFAULTS.angle);
+  const [useAdvancedAngles, setUseAdvancedAngles] = useState(search.adv ?? PREP_DEFAULTS.adv);
+  const [phiDeg, setPhiDeg] = useState(search.phi ?? PREP_DEFAULTS.phi);
+  const [thetaDeg, setThetaDeg] = useState(search.theta ?? PREP_DEFAULTS.theta);
+  const [targetEdgeStep, setTargetEdgeStep] = useState(search.target ?? PREP_DEFAULTS.target);
+  const [chiAssumed, setChiAssumed] = useState(search.chi ?? PREP_DEFAULTS.chi);
   const [eStart, setEStart] = useState(7000);
   const [eEnd, setEEnd] = useState(8000);
   const [eStep, setEStep] = useState(2);
-  const [selectedCaseId, setSelectedCaseId] = useState<CaseId | null>(null);
+  const [selectedCaseId, setSelectedCaseId] = useState<CaseId | null>(
+    (search.case as CaseId | undefined) ?? null,
+  );
 
   const activePhiDeg = useAdvancedAngles ? phiDeg : beamAngleDeg;
   const activeThetaDeg = useAdvancedAngles ? thetaDeg : beamAngleDeg;
@@ -261,6 +334,57 @@ function SamplePreparationHelperPage() {
     setEEnd(range[1]);
     setEStep(2);
   }, [ready, atom, edge]);
+
+  const [shareCopied, setShareCopied] = useState(false);
+
+  /** Snapshot the current inputs into a shareable URL and copy it. */
+  const copyShareLink = useCallback(async () => {
+    const params = new URLSearchParams();
+    const put = (key: string, value: string | number | boolean, fallback: string | number | boolean) => {
+      if (value !== fallback) params.set(key, String(value));
+    };
+    put("formula", sampleFormula, PREP_DEFAULTS.formula);
+    put("atom", atom, PREP_DEFAULTS.atom);
+    put("edge", edge, PREP_DEFAULTS.edge);
+    put("dil", diluentFormula, PREP_DEFAULTS.dil);
+    put("rho", sampleDensityGcm3, PREP_DEFAULTS.rho);
+    put("dilrho", diluentDensityGcm3, PREP_DEFAULTS.dilrho);
+    put("mass", totalMassMg, PREP_DEFAULTS.mass);
+    put("dia", diameterMm, PREP_DEFAULTS.dia);
+    put("angle", beamAngleDeg, PREP_DEFAULTS.angle);
+    put("adv", useAdvancedAngles, PREP_DEFAULTS.adv);
+    put("phi", phiDeg, PREP_DEFAULTS.phi);
+    put("theta", thetaDeg, PREP_DEFAULTS.theta);
+    put("target", targetEdgeStep, PREP_DEFAULTS.target);
+    put("chi", chiAssumed, PREP_DEFAULTS.chi);
+    if (selectedCaseId) params.set("case", selectedCaseId);
+    const query = params.toString();
+    const url = `${window.location.origin}${window.location.pathname}${query ? `?${query}` : ""}`;
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      // Clipboard can be denied (insecure context); fall back to the URL bar.
+      window.history.replaceState(null, "", url);
+    }
+    setShareCopied(true);
+    window.setTimeout(() => setShareCopied(false), 2000);
+  }, [
+    sampleFormula,
+    atom,
+    edge,
+    diluentFormula,
+    sampleDensityGcm3,
+    diluentDensityGcm3,
+    totalMassMg,
+    diameterMm,
+    beamAngleDeg,
+    useAdvancedAngles,
+    phiDeg,
+    thetaDeg,
+    targetEdgeStep,
+    chiAssumed,
+    selectedCaseId,
+  ]);
 
   const handleSampleChange = useCallback((formula: string) => {
     setSampleFormula(formula);
@@ -844,6 +968,15 @@ function SamplePreparationHelperPage() {
       <PageHeader
         title="Sample Preparation Helper"
         description="Interactive transmission + fluorescence suitability planning using exact Ameyanagi self-absorption."
+        actions={
+          <button
+            type="button"
+            onClick={copyShareLink}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+          >
+            {shareCopied ? "Link copied ✓" : "Share"}
+          </button>
+        }
       />
 
       <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-[360px_1fr]">
