@@ -1,6 +1,10 @@
+<img src="assets/icon-512.png" alt="" width="88" align="left" hspace="12">
+
 # WebXrayDB
 
-X-ray reference database and calculation tools built with Rust/WebAssembly and React.
+X-ray reference data and interactive XAS planning tools, free in your browser. Built with Rust/WebAssembly and React — everything runs client-side, nothing to install.
+
+**[Try it live](https://webxraydb-rs.ameyanagi.com)** · **[Watch the demo on YouTube](https://youtu.be/tt1Y-5KL51Q)** · [Desktop downloads](https://github.com/Ameyanagi/webxraydb-rs/releases)
 
 This project is heavily inspired by the [XrayDB Python library](https://xraypy.github.io/XrayDB/) (M. Newville et al.) and shares the same underlying atomic data sources (Elam, Chantler, Waasmaier-Kirfel). It is a Rust/WASM reimplementation with a web-based interactive UI.
 
