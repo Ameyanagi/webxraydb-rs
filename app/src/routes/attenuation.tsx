@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, useMemo, useCallback } from "react";
 import { useWasm } from "~/hooks/useWasm";
 import { material_mu } from "~/lib/wasm-api";
@@ -10,12 +10,50 @@ import type { PlotTrace } from "~/components/plot/ScientificPlot";
 import { FormulaInput } from "~/components/formula-input/FormulaInput";
 import { EnergyRangeInput } from "~/components/energy-range/EnergyRangeInput";
 import { MaterialPicker } from "~/components/material-picker/MaterialPicker";
-import { LoadingState } from "~/components/ui/LoadingState";
 import { ErrorBanner } from "~/components/ui/ErrorBanner";
 import { PageHeader } from "~/components/ui/PageHeader";
 
+/**
+ * Search params make a calculation shareable: /attenuation?formula=Fe2O3&rho=5.24
+ * reproduces the plot. Defaults are omitted from the URL to keep it clean, and
+ * malformed values fall back to the defaults instead of erroring the page.
+ */
+interface AttenuationSearch {
+  formula?: string;
+  rho?: number;
+  e0?: number;
+  e1?: number;
+  estep?: number;
+  kind?: string;
+}
+
+const SEARCH_DEFAULTS = {
+  formula: "H2O",
+  rho: 1.0,
+  e0: 1000,
+  e1: 30000,
+  estep: 50,
+  kind: "total",
+} as const;
+
+function searchNumber(value: unknown): number | undefined {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
+}
+
 export const Route = createFileRoute("/attenuation")({
   component: AttenuationPage,
+  validateSearch: (search: Record<string, unknown>): AttenuationSearch => ({
+    ...(typeof search.formula === "string" && search.formula ? { formula: search.formula } : {}),
+    ...(searchNumber(search.rho) !== undefined ? { rho: searchNumber(search.rho) } : {}),
+    ...(searchNumber(search.e0) !== undefined ? { e0: searchNumber(search.e0) } : {}),
+    ...(searchNumber(search.e1) !== undefined ? { e1: searchNumber(search.e1) } : {}),
+    ...(searchNumber(search.estep) !== undefined ? { estep: searchNumber(search.estep) } : {}),
+    ...(typeof search.kind === "string" &&
+    CROSS_SECTION_KINDS.some((k) => k.value === search.kind)
+      ? { kind: search.kind }
+      : {}),
+  }),
 });
 
 interface MaterialLayer {
@@ -37,14 +75,56 @@ let nextId = 1;
 
 function AttenuationPage() {
   const ready = useWasm();
+  // The URL is the single source of truth for the calculation inputs — the
+  // page never navigates on its own (a mount-time navigate re-entered the
+  // router during hydration and looped); only user edits navigate, with
+  // history.replace so typing does not spam the back button.
+  const search = Route.useSearch();
+  const navigate = useNavigate({ from: Route.fullPath });
 
-  const [formula, setFormula] = useState("H2O");
-  const [density, setDensity] = useState(1.0);
-  const [eStart, setEStart] = useState(1000);
-  const [eEnd, setEEnd] = useState(30000);
-  const [eStep, setEStep] = useState(50);
-  const [kind, setKind] = useState("total");
+  const formula = search.formula ?? SEARCH_DEFAULTS.formula;
+  const density = search.rho ?? SEARCH_DEFAULTS.rho;
+  const eStart = search.e0 ?? SEARCH_DEFAULTS.e0;
+  const eEnd = search.e1 ?? SEARCH_DEFAULTS.e1;
+  const eStep = search.estep ?? SEARCH_DEFAULTS.estep;
+  const kind = search.kind ?? SEARCH_DEFAULTS.kind;
   const [materials, setMaterials] = useState<MaterialLayer[]>([]);
+
+  const updateSearch = useCallback(
+    (patch: Partial<Record<keyof AttenuationSearch, string | number>>) => {
+      navigate({
+        replace: true,
+        search: (prev: AttenuationSearch): AttenuationSearch => {
+          const merged = {
+            formula: prev.formula ?? SEARCH_DEFAULTS.formula,
+            rho: prev.rho ?? SEARCH_DEFAULTS.rho,
+            e0: prev.e0 ?? SEARCH_DEFAULTS.e0,
+            e1: prev.e1 ?? SEARCH_DEFAULTS.e1,
+            estep: prev.estep ?? SEARCH_DEFAULTS.estep,
+            kind: prev.kind ?? SEARCH_DEFAULTS.kind,
+            ...patch,
+          };
+          // Omit defaults so a pristine page keeps a clean URL.
+          return {
+            ...(merged.formula !== SEARCH_DEFAULTS.formula ? { formula: String(merged.formula) } : {}),
+            ...(merged.rho !== SEARCH_DEFAULTS.rho ? { rho: Number(merged.rho) } : {}),
+            ...(merged.e0 !== SEARCH_DEFAULTS.e0 ? { e0: Number(merged.e0) } : {}),
+            ...(merged.e1 !== SEARCH_DEFAULTS.e1 ? { e1: Number(merged.e1) } : {}),
+            ...(merged.estep !== SEARCH_DEFAULTS.estep ? { estep: Number(merged.estep) } : {}),
+            ...(merged.kind !== SEARCH_DEFAULTS.kind ? { kind: String(merged.kind) } : {}),
+          };
+        },
+      });
+    },
+    [navigate],
+  );
+
+  const setFormula = useCallback((v: string) => updateSearch({ formula: v }), [updateSearch]);
+  const setDensity = useCallback((v: number) => updateSearch({ rho: v }), [updateSearch]);
+  const setEStart = useCallback((v: number) => updateSearch({ e0: v }), [updateSearch]);
+  const setEEnd = useCallback((v: number) => updateSearch({ e1: v }), [updateSearch]);
+  const setEStep = useCallback((v: number) => updateSearch({ estep: v }), [updateSearch]);
+  const setKind = useCallback((v: string) => updateSearch({ kind: v }), [updateSearch]);
 
   const handleMaterialSelect = useCallback(
     (f: string, d: number) => {
@@ -128,10 +208,6 @@ function AttenuationPage() {
       return errorState(e instanceof Error ? e.message : String(e));
     }
   }, [ready, formula, density, eStart, eEnd, eStep, kind, materials]);
-
-  if (!ready) {
-    return <LoadingState />;
-  }
 
   return (
     <div>

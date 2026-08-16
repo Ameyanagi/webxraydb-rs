@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { validate_formula, parse_formula } from "~/lib/wasm-api";
+import { useWasm } from "~/hooks/useWasm";
 
 interface FormulaInputProps {
   value: string;
@@ -16,6 +17,10 @@ export function FormulaInput({
 }: FormulaInputProps) {
   const [error, setError] = useState<string | null>(null);
   const [components, setComponents] = useState<string | null>(null);
+
+  // Pages render before the wasm module finishes loading; validation simply
+  // waits for it instead of crashing on the uninitialized bindings.
+  const ready = useWasm();
 
   const validateAndParse = useCallback((formula: string) => {
     if (!formula.trim()) {
@@ -41,8 +46,9 @@ export function FormulaInput({
   }, []);
 
   useEffect(() => {
+    if (!ready) return;
     validateAndParse(value);
-  }, [value, validateAndParse]);
+  }, [ready, value, validateAndParse]);
 
   return (
     <div className="space-y-1">

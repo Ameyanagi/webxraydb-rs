@@ -9,6 +9,11 @@ vi.mock("~/lib/wasm-api", () => ({
   parse_formula: vi.fn(),
 }));
 
+// The component defers validation until the wasm module reports ready.
+vi.mock("~/hooks/useWasm", () => ({
+  useWasm: () => true,
+}));
+
 describe("FormulaInput", () => {
   it("shows parsed components for a valid formula", async () => {
     vi.mocked(validate_formula).mockReturnValue(true);
