@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { Link, createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { useWasm } from "~/hooks/useWasm";
 import {
@@ -24,6 +24,129 @@ const HC_ANGSTROM = 12398.4;
 export const Route = createFileRoute("/")({
   component: HomePage,
 });
+
+
+const TOOL_DIRECTORY: {
+  section: string;
+  tools: { to: string; label: string; blurb: string }[];
+}[] = [
+  {
+    section: "Lookup",
+    tools: [
+      {
+        to: "/",
+        label: "Elements",
+        blurb: "This page — periodic table with edges, emission lines, core-hole widths and μ/ρ per element.",
+      },
+      {
+        to: "/edges",
+        label: "Edge Finder",
+        blurb: "Find the absorption edge closest to an energy, including 1/2 and 1/3 harmonics.",
+      },
+      {
+        to: "/lines",
+        label: "Line Finder",
+        blurb: "Find the emission line closest to an energy.",
+      },
+    ],
+  },
+  {
+    section: "Materials",
+    tools: [
+      {
+        to: "/attenuation",
+        label: "Attenuation",
+        blurb: "μ(E) for any formula or database material, with cross-section contributions and overlays.",
+      },
+      {
+        to: "/formulas",
+        label: "Absorption Formulas",
+        blurb: "Absorption length, unit edge step, refractive index δ/β and per-element contributions.",
+      },
+      {
+        to: "/scattering",
+        label: "Scattering Factors",
+        blurb: "Anomalous scattering factors f′ and f″ from the Chantler tables.",
+      },
+    ],
+  },
+  {
+    section: "Sample Preparation",
+    tools: [
+      {
+        to: "/sample-preparation-helper",
+        label: "Preparation Helper",
+        blurb: "Plan a pellet end to end: method-selection flowchart, transmission and fluorescence verdicts, dilution and thickness recipes.",
+      },
+      {
+        to: "/sample-weight",
+        label: "Sample Weight",
+        blurb: "Sample and diluent masses to hit a target edge step for a transmission pellet.",
+      },
+      {
+        to: "/self-absorption",
+        label: "Self Absorption",
+        blurb: "Fluorescence self-absorption R(E, χ) with exact Ameyanagi suppression and Booth reference.",
+      },
+    ],
+  },
+  {
+    section: "Optics",
+    tools: [
+      {
+        to: "/ionchamber",
+        label: "Ion Chamber",
+        blurb: "Incident and transmitted flux from ion-chamber readings and gas mixes.",
+      },
+      {
+        to: "/reflectivity",
+        label: "Mirror Reflectivity",
+        blurb: "X-ray mirror reflectivity versus angle or energy.",
+      },
+      {
+        to: "/darwin",
+        label: "Darwin Width",
+        blurb: "Monochromator Darwin widths, reflectivity curves and energy resolution.",
+      },
+      {
+        to: "/analyzers",
+        label: "Analyzer Crystals",
+        blurb: "Analyzer reflections for an emission line — for RIXS and emission spectroscopy.",
+      },
+    ],
+  },
+];
+
+function ToolDirectory() {
+  return (
+    <section className="mt-8">
+      <h2 className="mb-3 text-base font-semibold">All tools</h2>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {TOOL_DIRECTORY.map((group) => (
+          <div key={group.section} className="rounded-lg border border-border bg-card p-3">
+            <h3 className="mb-2 text-[11px] font-bold uppercase tracking-[0.08em] text-muted-foreground">
+              {group.section}
+            </h3>
+            <ul className="space-y-2">
+              {group.tools.map((tool) => (
+                <li key={tool.to}>
+                  <Link to={tool.to} className="group block rounded-md p-1.5 -m-1.5 hover:bg-accent/50">
+                    <span className="text-sm font-medium text-foreground group-hover:text-accent-foreground">
+                      {tool.label}
+                    </span>
+                    <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
+                      {tool.blurb}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 const EDGE_PRIORITY = ["K", "L3", "L2", "L1"];
 
@@ -276,7 +399,7 @@ function HomePage() {
     <div>
       <PageHeader
         title="X-ray Analysis Tools"
-        description="Click an element to view its X-ray properties."
+        description="Click an element for its X-ray properties, or jump to a tool from the directory below."
       />
 
       {/* Periodic table + summary panel side by side */}
@@ -631,6 +754,8 @@ function HomePage() {
           </div>
         </div>
       )}
+
+      <ToolDirectory />
     </div>
   );
 }
