@@ -362,7 +362,7 @@ function RootDocument({ children }: { children: ReactNode }) {
         <ThemeContext.Provider value={themeValue}>
           <div className="flex min-h-screen">
             {/* Desktop sidebar */}
-            <nav className="hidden w-56 shrink-0 border-r border-border bg-card p-4 md:flex md:flex-col">
+            <nav className="hidden w-56 shrink-0 border-r border-border bg-card p-4 md:sticky md:top-0 md:flex md:h-screen md:flex-col md:overflow-y-auto">
               <Link
                 to="/"
                 className="mb-6 block text-lg font-bold text-foreground"
