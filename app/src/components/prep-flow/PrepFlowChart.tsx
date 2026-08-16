@@ -59,9 +59,9 @@ const THIN_PELLET_UM = 10;
 
 const VERDICT_CLASSES: Record<Verdict, string> = {
   info: "border-border bg-secondary/50 text-foreground",
-  ok: "border-emerald-500/60 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-  warn: "border-amber-500/60 bg-amber-500/10 text-amber-700 dark:text-amber-300",
-  bad: "border-red-500/60 bg-red-500/10 text-red-700 dark:text-red-300",
+  ok: "border-emerald-500/60 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200",
+  warn: "border-amber-500/60 bg-amber-500/10 text-amber-800 dark:text-amber-200",
+  bad: "border-red-500/60 bg-red-500/10 text-red-800 dark:text-red-200",
   muted: "border-border/60 bg-secondary/20 text-muted-foreground",
 };
 
@@ -130,7 +130,7 @@ function FlowNode({
       }`}
     >
       <div className="text-xs font-semibold">{title}</div>
-      <div className="mt-0.5 text-[11px] leading-snug opacity-80">{subtitle}</div>
+      <div className="mt-0.5 text-[11px] leading-snug opacity-90">{subtitle}</div>
     </button>
   );
 }

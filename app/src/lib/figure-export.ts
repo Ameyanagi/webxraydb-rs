@@ -122,18 +122,38 @@ export function applyPlotSpec(
   const labelHeights = [0.96, 0.88].map((fraction) =>
     labelYAt(spec.traces, spec.logY, fraction),
   );
-  (spec.verticalLines ?? []).forEach((line, index) => {
+
+  // Label collision control: alternate between two heights, and within a
+  // height skip any label whose x sits closer to the previous one than ~4% of
+  // the axis span (measured in the axis's own scale). The line itself is
+  // always drawn — only the text is suppressed, keeping dense edge clusters
+  // (Fe L3/L2/L1 within 150 eV) legible instead of overprinted.
+  const xs = spec.traces.flatMap((t) => t.x).filter((v) => Number.isFinite(v) && (!spec.logX || v > 0));
+  const axisPos = (x: number) => (spec.logX ? Math.log10(x) : x);
+  const xSpan =
+    xs.length > 1 ? axisPos(Math.max(...xs)) - axisPos(Math.min(...xs)) : 0;
+  const minGap = xSpan * 0.04;
+  const lastLabelAt: (number | null)[] = [null, null];
+
+  (spec.verticalLines ?? []).forEach((line) => {
     plot.vline(line.x, {
       ...(line.color ? { color: line.color } : {}),
       linestyle: toLinestyle(line.dash ?? "dot"),
     });
-    const textY = labelHeights[index % labelHeights.length];
-    if (textY !== null && textY !== undefined) {
-      plot.annotateText(line.x, textY, line.text, {
-        fontSize: Math.max(6, fontSize - 1),
-        ...(line.color ? { color: line.color } : {}),
-      });
-    }
+    if (!Number.isFinite(line.x) || (spec.logX && line.x <= 0)) return;
+    const pos = axisPos(line.x);
+    // Pick the first height row with room; give up on the label if both are taken.
+    const row = lastLabelAt.findIndex(
+      (last) => last === null || minGap === 0 || Math.abs(pos - last) >= minGap,
+    );
+    if (row === -1) return;
+    const textY = labelHeights[row];
+    if (textY === null || textY === undefined) return;
+    lastLabelAt[row] = pos;
+    plot.annotateText(line.x, textY, line.text, {
+      fontSize: Math.max(6, fontSize - 1),
+      ...(line.color ? { color: line.color } : {}),
+    });
   });
 }
 

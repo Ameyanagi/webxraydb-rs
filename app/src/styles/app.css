@@ -1,6 +1,12 @@
 @import "tailwindcss";
 /* katex.min.css is imported by EquationBlock so it loads with the docs modal chunk. */
 
+/* The app switches theme with a `.dark` class on <html> (see lib/theme.ts).
+   Tailwind's `dark:` variant defaults to the OS `prefers-color-scheme` media
+   query, which made `dark:` utilities ignore the in-app toggle — on a dark-OS
+   machine they stayed dark even in light mode. Bind the variant to the class. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* ============================================
    Default theme — Neutral Blue
    ============================================ */
