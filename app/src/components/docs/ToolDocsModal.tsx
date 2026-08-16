@@ -1,11 +1,11 @@
 import { useEffect, useState, useCallback } from "react";
 import { EquationBlock } from "~/components/docs/EquationBlock";
 import { ReferenceList } from "~/components/docs/ReferenceList";
-import type { ToolDoc } from "~/docs/types";
+import { getToolDoc } from "~/docs/tool-docs";
+import type { ToolDocId } from "~/docs/types";
 
 interface ToolDocsModalProps {
-  open: boolean;
-  doc: ToolDoc;
+  docId: ToolDocId;
   onClose: () => void;
 }
 
@@ -19,7 +19,8 @@ const SECTION_LABELS: Record<SectionId, string> = {
   references: "References",
 };
 
-export function ToolDocsModal({ open, doc, onClose }: ToolDocsModalProps) {
+export function ToolDocsModal({ docId, onClose }: ToolDocsModalProps) {
+  const doc = getToolDoc(docId);
   const [collapsed, setCollapsed] = useState<Set<SectionId>>(() => new Set());
 
   const toggle = useCallback((id: SectionId) => {
@@ -35,8 +36,6 @@ export function ToolDocsModal({ open, doc, onClose }: ToolDocsModalProps) {
   }, []);
 
   useEffect(() => {
-    if (!open) return;
-
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
     };
@@ -49,14 +48,7 @@ export function ToolDocsModal({ open, doc, onClose }: ToolDocsModalProps) {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [open, onClose]);
-
-  // Reset collapsed state when modal opens with new doc
-  useEffect(() => {
-    if (open) setCollapsed(new Set());
-  }, [open, doc.id]);
-
-  if (!open) return null;
+  }, [onClose]);
 
   const hasNotes = doc.notes && doc.notes.length > 0;
 

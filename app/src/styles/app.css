@@ -1,5 +1,5 @@
 @import "tailwindcss";
-@import "katex/dist/katex.min.css";
+/* katex.min.css is imported by EquationBlock so it loads with the docs modal chunk. */
 
 /* ============================================
    Default theme — Neutral Blue

@@ -17,6 +17,22 @@ export const TOOL_DOC_IDS = [
 
 export type ToolDocId = (typeof TOOL_DOC_IDS)[number];
 
+/**
+ * Map a pathname to its doc id without pulling in the doc content.
+ * Kept here so `ToolDocsButton` can decide whether a doc exists while the
+ * content (and KaTeX) stay behind a dynamic import.
+ */
+export function resolveToolDocId(pathname: string): ToolDocId | null {
+  if (pathname === "/") return "/";
+  if (pathname.startsWith("/element/")) return "/element/$z";
+
+  return (
+    TOOL_DOC_IDS.find(
+      (id) => id !== "/" && id !== "/element/$z" && pathname.startsWith(id),
+    ) ?? null
+  );
+}
+
 export interface ToolEquationVariable {
   symbol: string;
   description: string;

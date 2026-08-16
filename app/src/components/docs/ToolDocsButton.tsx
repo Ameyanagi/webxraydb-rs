@@ -1,8 +1,13 @@
-import { useState } from "react";
+import { Suspense, lazy, useState } from "react";
 import { useRouterState } from "@tanstack/react-router";
-import { getToolDoc, getToolDocByPath } from "~/docs/tool-docs";
-import type { ToolDocId } from "~/docs/types";
-import { ToolDocsModal } from "~/components/docs/ToolDocsModal";
+import { resolveToolDocId, type ToolDocId } from "~/docs/types";
+
+// Doc content and KaTeX only load once the reader opens the modal.
+const ToolDocsModal = lazy(() =>
+  import("~/components/docs/ToolDocsModal").then((m) => ({
+    default: m.ToolDocsModal,
+  })),
+);
 
 interface ToolDocsButtonProps {
   docId?: ToolDocId;
@@ -12,9 +17,9 @@ interface ToolDocsButtonProps {
 export function ToolDocsButton({ docId, className }: ToolDocsButtonProps) {
   const [open, setOpen] = useState(false);
   const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const doc = docId ? getToolDoc(docId) : getToolDocByPath(pathname);
+  const resolvedId = docId ?? resolveToolDocId(pathname);
 
-  if (!doc) return null;
+  if (!resolvedId) return null;
 
   return (
     <>
@@ -34,11 +39,11 @@ export function ToolDocsButton({ docId, className }: ToolDocsButtonProps) {
         Theory & References
       </button>
 
-      <ToolDocsModal
-        open={open}
-        doc={doc}
-        onClose={() => setOpen(false)}
-      />
+      {open && (
+        <Suspense fallback={null}>
+          <ToolDocsModal docId={resolvedId} onClose={() => setOpen(false)} />
+        </Suspense>
+      )}
     </>
   );
 }

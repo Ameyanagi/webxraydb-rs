@@ -826,15 +826,4 @@ export function getToolDoc(id: ToolDocId): ToolDoc {
   return TOOL_DOCS[id];
 }
 
-export function getToolDocByPath(pathname: string): ToolDoc | null {
-  if (pathname === "/") return TOOL_DOCS["/"];
-  if (pathname.startsWith("/element/")) return TOOL_DOCS["/element/$z"];
-
-  const directMatch = Object.keys(TOOL_DOCS).find(
-    (key) => key !== "/" && key !== "/element/$z" && pathname.startsWith(key),
-  ) as ToolDocId | undefined;
-
-  return directMatch ? TOOL_DOCS[directMatch] : null;
-}
-
 export { TOOL_DOCS };
