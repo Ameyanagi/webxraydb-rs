@@ -136,21 +136,62 @@ function FlowNode({
   );
 }
 
-function VerticalConnector() {
-  return <div className="mx-auto h-4 w-px bg-border" />;
+/** Connector stroke: strong enough to read as a flow, in any theme. */
+const STROKE = "bg-muted-foreground/60";
+
+function Arrowhead() {
+  return (
+    <div className="h-0 w-0 border-x-[5px] border-t-[6px] border-x-transparent border-t-muted-foreground/60" />
+  );
 }
 
+function VerticalConnector() {
+  return (
+    <div className="mx-auto flex h-6 flex-col items-center">
+      <div className={`w-0.5 flex-1 ${STROKE}`} />
+      <Arrowhead />
+    </div>
+  );
+}
+
+/** One stem splitting into two branches (or the mirror when joining). */
 function BranchConnector({ join = false }: { join?: boolean }) {
   return (
-    <div className="relative h-4">
-      <div className="absolute left-1/4 right-1/4 top-1/2 border-t border-border" />
+    <div className="relative h-7">
+      {/* horizontal rail */}
+      <div className={`absolute left-1/4 right-1/4 top-1/2 h-0.5 -translate-y-1/2 ${STROKE}`} />
+      {/* center stem */}
       <div
-        className={`absolute left-1/2 w-px bg-border ${join ? "bottom-0 top-1/2" : "top-0 h-1/2"}`}
+        className={`absolute left-1/2 w-0.5 -translate-x-1/2 ${STROKE} ${
+          join ? "bottom-0 top-1/2" : "top-0 h-1/2"
+        }`}
       />
-      <div className={`absolute left-1/4 w-px bg-border ${join ? "top-0 h-1/2" : "top-1/2 h-1/2"}`} />
+      {/* branch stems */}
       <div
-        className={`absolute right-1/4 w-px bg-border ${join ? "top-0 h-1/2" : "top-1/2 h-1/2"}`}
+        className={`absolute left-1/4 w-0.5 -translate-x-1/2 ${STROKE} ${
+          join ? "top-0 h-1/2" : "top-1/2 bottom-0"
+        }`}
       />
+      <div
+        className={`absolute right-1/4 w-0.5 translate-x-1/2 ${STROKE} ${
+          join ? "top-0 h-1/2" : "top-1/2 bottom-0"
+        }`}
+      />
+      {/* arrowheads on the outgoing ends */}
+      {join ? (
+        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-full">
+          <Arrowhead />
+        </div>
+      ) : (
+        <>
+          <div className="absolute bottom-0 left-1/4 -translate-x-1/2 translate-y-full">
+            <Arrowhead />
+          </div>
+          <div className="absolute bottom-0 right-1/4 translate-x-1/2 translate-y-full">
+            <Arrowhead />
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -318,7 +359,7 @@ export function PrepFlowChart(props: PrepFlowChartProps) {
           onSelect={toggle}
         />
         <BranchConnector />
-        <div className="grid grid-cols-2 gap-3">
+        <div className="mt-1.5 grid grid-cols-2 gap-3">
           <FlowNode
             id="transmission"
             title="Transmission feasible?"
@@ -347,6 +388,7 @@ export function PrepFlowChart(props: PrepFlowChartProps) {
           />
         </div>
         <BranchConnector join />
+        <div className="mt-1.5" />
         <FlowNode
           id="methods"
           title="Methods — choose what to measure"
